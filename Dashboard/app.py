@@ -498,55 +498,100 @@ with tabs[4]:
 # ------------------------------------------
 with tabs[5]:
     st.header("Causal Impact / Regression Results")
-    
+
     if df_model.empty:
         st.warning("Regression summary file not found. Model result tab is disabled.")
     else:
+        df_model = df_model.copy()
+
+        # Clean column names: remove whitespace and BOM
+        df_model.columns = (
+            df_model.columns
+            .astype(str)
+            .str.replace("\ufeff", "", regex=False)
+            .str.strip()
+        )
+
         st.dataframe(df_model, use_container_width=True)
-        
-        # Display dynamically based on what's available
-        # Assuming columns might be like 'Model', 'Coefficient', 'P_Value', 'R_Squared'
-        cols = df_model.columns.str.lower()
-        pval_col = [c for c in df_model.columns if 'p' in c.lower() and 'val' in c.lower()]
-        coef_col = [c for c in df_model.columns if 'coef' in c.lower()]
-        r2_col = [c for c in df_model.columns if 'r' in c.lower() and 'sq' in c.lower()]
-        
+
+        required_model_col = "Model"
+
+        if required_model_col not in df_model.columns:
+            st.error(
+                "Column 'Model' not found in final_causal_impact_summary.csv. "
+                f"Current columns: {list(df_model.columns)}"
+            )
+            st.stop()
+
+        pval_col = [c for c in df_model.columns if "p" in c.lower() and "val" in c.lower()]
+        coef_col = [c for c in df_model.columns if "coef" in c.lower()]
+        r2_col = [c for c in df_model.columns if "r" in c.lower() and "sq" in c.lower()]
+
         c1, c2 = st.columns(2)
-        if coef_col and 'Model' in df_model.columns:
-            fig_c = px.bar(df_model, x='Model', y=coef_col[0], title="Rule Coefficient by Model", color_discrete_sequence=['#f4a460'])
-            fig_c.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+
+        if coef_col:
+            fig_c = px.bar(
+                df_model,
+                x="Model",
+                y=coef_col[0],
+                title="Rule Coefficient by Model",
+                color_discrete_sequence=["#f4a460"]
+            )
+            fig_c.update_layout(
+                template="plotly_dark",
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)"
+            )
             c1.plotly_chart(fig_c, use_container_width=True)
-            
-        if r2_col and 'Model' in df_model.columns:
-            fig_r = px.bar(df_model, x='Model', y=r2_col[0], title="R-Squared by Model", color_discrete_sequence=['#1f77b4'])
-            fig_r.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+
+        if r2_col:
+            fig_r = px.bar(
+                df_model,
+                x="Model",
+                y=r2_col[0],
+                title="R-Squared by Model",
+                color_discrete_sequence=["#1f77b4"]
+            )
+            fig_r.update_layout(
+                template="plotly_dark",
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)"
+            )
             c2.plotly_chart(fig_r, use_container_width=True)
-        
-        if pval_col and "Model" in df_model.columns:
+
+        if not pval_col:
+            st.info("No p-value column found. Statistical conclusion is not displayed.")
+        else:
             p_col = pval_col[0]
 
-    final_aov_model = df_model[df_model["Model"].astype(str).str.contains("Model 5A", na=False)]
-    final_log_model = df_model[df_model["Model"].astype(str).str.contains("Model 5B", na=False)]
+            final_aov_model = df_model[
+                df_model["Model"].astype(str).str.contains("Model 5A", case=False, na=False)
+            ]
 
-    final_aov_p = final_aov_model[p_col].iloc[0] if not final_aov_model.empty else None
-    final_log_p = final_log_model[p_col].iloc[0] if not final_log_model.empty else None
+            final_log_model = df_model[
+                df_model["Model"].astype(str).str.contains("Model 5B", case=False, na=False)
+            ]
 
-    if final_aov_p is not None and final_log_p is not None:
-        if final_aov_p >= 0.05 and final_log_p >= 0.05:
-            st.markdown("""
-            <div class='insight-box'>
-                <b>Conclusion:</b> Baseline models show a positive association, but after controlling for 
-                BasketSize, AvgUnitPrice, TotalQuantity, and Country, the selected rule is 
-                <b>not statistically significant</b>. Therefore, there is no strong evidence of causal impact after controls.
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div class='insight-box'>
-                <b>Conclusion:</b> The final controlled model shows statistical significance. 
-                However, since the data is observational, this should be interpreted as association rather than strict causality.
-            </div>
-            """, unsafe_allow_html=True)
+            final_aov_p = final_aov_model[p_col].iloc[0] if not final_aov_model.empty else None
+            final_log_p = final_log_model[p_col].iloc[0] if not final_log_model.empty else None
+
+            if final_aov_p is None or final_log_p is None:
+                st.info("Model 5A or Model 5B was not found. Final controlled-model conclusion is not displayed.")
+            elif final_aov_p >= 0.05 and final_log_p >= 0.05:
+                st.markdown("""
+                <div class='insight-box'>
+                    <b>Conclusion:</b> Baseline models show a positive association, but after controlling for 
+                    BasketSize, AvgUnitPrice, TotalQuantity, and Country, the selected rule is 
+                    <b>not statistically significant</b>. Therefore, there is no strong evidence of causal impact after controls.
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div class='insight-box'>
+                    <b>Conclusion:</b> The final controlled model shows statistical significance. 
+                    However, since the data is observational, this should be interpreted as association rather than strict causality.
+                </div>
+                """, unsafe_allow_html=True)
 # ------------------------------------------
 # TAB 7: FINAL BUSINESS CONCLUSION
 # ------------------------------------------
