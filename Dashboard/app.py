@@ -54,18 +54,34 @@ st.markdown("""
 # ==========================================
 # 2. DATA LOADING (SAFE LOAD)
 # ==========================================
-DATA_DIR = "data"
+current_dir = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(current_dir, "data")
 
 @st.cache_data
-def safe_load_csv(filename):
+def safe_load_csv(filename, required=False):
     path = os.path.join(DATA_DIR, filename)
-    if os.path.exists(path):
-        try:
-            return pd.read_csv(path)
-        except Exception as e:
-            st.sidebar.error(f"Error loading {filename}: {e}")
-            return pd.DataFrame()
-    return pd.DataFrame()
+
+    if not os.path.exists(path):
+        if required:
+            st.sidebar.warning(f"Missing file: {filename}")
+        return pd.DataFrame()
+
+    try:
+        df = pd.read_csv(path)
+
+        # Clean column names: remove BOM and extra spaces
+        df.columns = (
+            df.columns
+            .astype(str)
+            .str.replace("\ufeff", "", regex=False)
+            .str.strip()
+        )
+
+        return df
+
+    except Exception as e:
+        st.sidebar.error(f"Error loading {filename}: {e}")
+        return pd.DataFrame()
 
 def clean_frozenset_str(val):
     if pd.isna(val): return str(val)
@@ -187,17 +203,24 @@ def enrich_rules_with_description(df, product_map):
 
     return df
 # Load Core Data
-df_rules = safe_load_csv("association_rules_strong.csv")
-df_top20 = safe_load_csv("top_20_association_rules.csv")
-df_baskets = safe_load_csv("online_retail_ii_basket_df.csv")
-df_items = safe_load_csv("online_retail_ii_basket_items.csv")
-df_lookup = safe_load_csv("product_lookup.csv")
+# Load Core Data
+df_rules = safe_load_csv("association_rules_strong.csv", required=True)
+df_top20 = safe_load_csv("top_20_association_rules.csv", required=True)
+df_baskets = safe_load_csv("online_retail_ii_basket_df.csv", required=True)
+
+# Large local-only file, not uploaded to GitHub
+df_items = safe_load_csv("online_retail_ii_basket_items.csv", required=False)
+
+# Small lookup / summary files
+df_lookup = safe_load_csv("product_lookup.csv", required=True)
+df_top_products = safe_load_csv("top_product_frequency.csv", required=True)
+
 # Load Optional Data
-df_sim = safe_load_csv("add_to_cart_lift_simulation.csv")
-df_model = safe_load_csv("final_causal_impact_summary.csv")
-df_alg_runtime = safe_load_csv("algorithm_runtime_summary.csv")
-df_apr_freq = safe_load_csv("apriori_frequent_itemsets.csv")
-df_fp_freq = safe_load_csv("fpgrowth_frequent_itemsets.csv")
+df_sim = safe_load_csv("add_to_cart_lift_simulation.csv", required=False)
+df_model = safe_load_csv("final_causal_impact_summary.csv", required=True)
+df_alg_runtime = safe_load_csv("algorithm_runtime_summary.csv", required=False)
+df_apr_freq = safe_load_csv("apriori_frequent_itemsets.csv", required=False)
+df_fp_freq = safe_load_csv("fpgrowth_frequent_itemsets.csv", required=False)
 
 # Clean frozenset strings in rules if antecedents_str doesn't exist
 if not df_rules.empty:
@@ -261,8 +284,8 @@ with tabs[0]:
         total_revenue = df_b_filtered['ProductRevenue'].sum() if 'ProductRevenue' in df_b_filtered.columns else 0
         avg_basket_size = df_b_filtered['BasketSize'].mean() if 'BasketSize' in df_b_filtered.columns else 0
         
-    if not df_items.empty:
-        total_unique_prods = df_items['StockCode'].nunique() if 'StockCode' in df_items.columns else 0
+    if not df_lookup.empty and "StockCode" in df_lookup.columns:
+        total_unique_prods = df_lookup["StockCode"].nunique()
 
     n_rules = len(df_rules)
     max_lift = df_rules['lift'].max() if not df_rules.empty else 0
@@ -286,14 +309,33 @@ with tabs[0]:
             st.info("Basket data not available.")
 
     with c2:
-        if not df_items.empty and 'Description' in df_items.columns and 'InvoiceNo' in df_items.columns:
-            top_freq = df_items.groupby('Description')['InvoiceNo'].nunique().sort_values(ascending=False).head(10).reset_index()
-            top_freq.columns = ['Product', 'Frequency']
-            fig2 = px.bar(top_freq, x='Frequency', y='Product', orientation='h', title="Top 10 Products by Frequency", color_discrete_sequence=['#1f77b4'])
-            fig2.update_layout(yaxis={'categoryorder':'total ascending'}, template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        if not df_top_products.empty and {"Product", "Frequency"}.issubset(df_top_products.columns):
+            top_freq = (
+                df_top_products
+                .sort_values("Frequency", ascending=False)
+                .head(10)
+            )
+    
+            fig2 = px.bar(
+                top_freq,
+                x="Frequency",
+                y="Product",
+                orientation="h",
+                title="Top 10 Products by Frequency",
+                color_discrete_sequence=["#1f77b4"]
+            )
+    
+            fig2.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                template="plotly_dark",
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)"
+            )
+    
             st.plotly_chart(fig2, use_container_width=True)
+    
         else:
-            st.info("Item data not available.")
+            st.info("Top product frequency data not available.")
 
 # ------------------------------------------
 # TAB 2: RULES EXPLORER
