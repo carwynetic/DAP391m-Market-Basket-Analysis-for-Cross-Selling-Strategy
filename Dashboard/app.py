@@ -539,7 +539,7 @@ with tabs[4]:
 # TAB 6: MODEL RESULTS / REGRESSION IMPACT
 # ------------------------------------------
 with tabs[5]:
-    st.header("Causal Impact / Regression Results")
+    st.header("Regression-Based Robustness Check")
 
     if df_model.empty:
         st.warning("Regression summary file not found. Model result tab is disabled.")
