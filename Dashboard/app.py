@@ -1120,14 +1120,17 @@ with tabs[7]:
                                 max_len=uploaded_max_len
                             )
 
-                        apriori_itemsets_uploaded = mining_results["apriori_itemsets"]
-                        fpgrowth_itemsets_uploaded = mining_results["fpgrowth_itemsets"]
-                        runtime_summary_uploaded = mining_results["runtime_summary"]
-                        st.session_state["apriori_itemsets_uploaded"] = apriori_itemsets_uploaded
-                        st.session_state["fpgrowth_itemsets_uploaded"] = fpgrowth_itemsets_uploaded
-                        st.session_state["runtime_summary_uploaded"] = runtime_summary_uploaded
+                        st.session_state["apriori_itemsets_uploaded"] = mining_results["apriori_itemsets"]
+                        st.session_state["fpgrowth_itemsets_uploaded"] = mining_results["fpgrowth_itemsets"]
+                        st.session_state["runtime_summary_uploaded"] = mining_results["runtime_summary"]
                         st.session_state["validated_uploaded_df"] = validated_df
                         st.session_state["uploaded_min_support"] = uploaded_min_support
+
+                    if "fpgrowth_itemsets_uploaded" in st.session_state:
+                        apriori_itemsets_uploaded = st.session_state["apriori_itemsets_uploaded"]
+                        fpgrowth_itemsets_uploaded = st.session_state["fpgrowth_itemsets_uploaded"]
+                        runtime_summary_uploaded = st.session_state["runtime_summary_uploaded"]
+
                         st.success("Apriori and FP-Growth completed successfully.")
 
                         st.subheader("Algorithm Runtime Summary")
@@ -1163,27 +1166,21 @@ with tabs[7]:
 
                             with c_apr:
                                 st.markdown("### Apriori Frequent Itemsets")
-                                if apriori_itemsets_uploaded.empty:
-                                    st.info("Apriori returned no frequent itemsets.")
-                                else:
-                                    st.dataframe(
-                                        apriori_itemsets_uploaded[
-                                            ["itemsets_str", "itemset_size", "support"]
-                                        ].head(50),
-                                        use_container_width=True
-                                    )
+                                st.dataframe(
+                                    apriori_itemsets_uploaded[
+                                        ["itemsets_str", "itemset_size", "support"]
+                                    ].head(50),
+                                    use_container_width=True
+                                )
 
                             with c_fp:
                                 st.markdown("### FP-Growth Frequent Itemsets")
-                                if fpgrowth_itemsets_uploaded.empty:
-                                    st.info("FP-Growth returned no frequent itemsets.")
-                                else:
-                                    st.dataframe(
-                                        fpgrowth_itemsets_uploaded[
-                                            ["itemsets_str", "itemset_size", "support"]
-                                        ].head(50),
-                                        use_container_width=True
-                                    )
+                                st.dataframe(
+                                    fpgrowth_itemsets_uploaded[
+                                        ["itemsets_str", "itemset_size", "support"]
+                                    ].head(50),
+                                    use_container_width=True
+                                )
 
                             fig_runtime_uploaded = px.bar(
                                 runtime_summary_uploaded,
@@ -1207,150 +1204,160 @@ with tabs[7]:
                                 <b>Next stage:</b> generate association rules from these frequent itemsets.
                             </div>
                             """, unsafe_allow_html=True)
-                            # ==========================================
-                            # STAGE 5: ASSOCIATION RULE GENERATION
-                            # ==========================================
 
-                            st.markdown("---")
-                            st.subheader("Association Rule Generation")
+                    # ==========================================
+                    # STAGE 5: ASSOCIATION RULE GENERATION
+                    # ==========================================
 
-                            g1, g2, g3 = st.columns(3)
+                    if "fpgrowth_itemsets_uploaded" in st.session_state:
+                        st.markdown("---")
+                        st.subheader("Association Rule Generation")
 
-                            with g1:
-                                uploaded_rule_min_confidence = st.slider(
-                                    "Rule Generation Min Confidence",
-                                    min_value=0.05,
-                                    max_value=1.00,
-                                    value=0.20,
-                                    step=0.05,
-                                    format="%.2f"
+                        g1, g2, g3 = st.columns(3)
+
+                        with g1:
+                            uploaded_rule_min_confidence = st.slider(
+                                "Rule Generation Min Confidence",
+                                min_value=0.05,
+                                max_value=1.00,
+                                value=0.20,
+                                step=0.05,
+                                format="%.2f"
+                            )
+
+                        with g2:
+                            uploaded_strong_confidence = st.slider(
+                                "Strong Rule Min Confidence",
+                                min_value=0.05,
+                                max_value=1.00,
+                                value=0.40,
+                                step=0.05,
+                                format="%.2f"
+                            )
+
+                        with g3:
+                            uploaded_strong_lift = st.slider(
+                                "Strong Rule Min Lift",
+                                min_value=1.00,
+                                max_value=10.00,
+                                value=2.00,
+                                step=0.50,
+                                format="%.2f"
+                            )
+
+                        generate_rules_button = st.button("Generate Association Rules from Uploaded Dataset")
+
+                        if generate_rules_button:
+                            fpgrowth_itemsets_uploaded = st.session_state["fpgrowth_itemsets_uploaded"]
+                            validated_df_for_rules = st.session_state["validated_uploaded_df"]
+                            uploaded_min_support_for_rules = st.session_state["uploaded_min_support"]
+
+                            if fpgrowth_itemsets_uploaded.empty:
+                                st.error("FP-Growth frequent itemsets are empty. Cannot generate association rules.")
+                            else:
+                                uploaded_rules, uploaded_strong_rules = generate_uploaded_association_rules(
+                                    frequent_itemsets=fpgrowth_itemsets_uploaded,
+                                    uploaded_df=validated_df_for_rules,
+                                    min_confidence=uploaded_rule_min_confidence,
+                                    strong_min_support=uploaded_min_support_for_rules,
+                                    strong_min_confidence=uploaded_strong_confidence,
+                                    strong_min_lift=uploaded_strong_lift
                                 )
 
-                            with g2:
-                                uploaded_strong_confidence = st.slider(
-                                    "Strong Rule Min Confidence",
-                                    min_value=0.05,
-                                    max_value=1.00,
-                                    value=0.40,
-                                    step=0.05,
-                                    format="%.2f"
-                                )
+                                st.session_state["uploaded_rules"] = uploaded_rules
+                                st.session_state["uploaded_strong_rules"] = uploaded_strong_rules
 
-                            with g3:
-                                uploaded_strong_lift = st.slider(
-                                    "Strong Rule Min Lift",
-                                    min_value=1.00,
-                                    max_value=10.00,
-                                    value=2.00,
-                                    step=0.50,
-                                    format="%.2f"
-                                )
-                            generate_rules_button = st.button("Generate Association Rules from Uploaded Dataset")
+                        if "uploaded_rules" in st.session_state:
+                            uploaded_rules = st.session_state["uploaded_rules"]
+                            uploaded_strong_rules = st.session_state["uploaded_strong_rules"]
 
-                            if generate_rules_button:
-                                if "fpgrowth_itemsets_uploaded" not in st.session_state:
-                                    st.error("Run Apriori and FP-Growth first before generating association rules.")
-                                elif st.session_state["fpgrowth_itemsets_uploaded"].empty:
-                                    st.error("FP-Growth frequent itemsets are empty. Cannot generate association rules.")
-                                else:
-                                    fpgrowth_itemsets_uploaded = st.session_state["fpgrowth_itemsets_uploaded"]
-                                    validated_df = st.session_state["validated_uploaded_df"]
-                                    uploaded_min_support = st.session_state["uploaded_min_support"]
+                            if uploaded_rules.empty:
+                                st.warning("No association rules were generated. Try lowering min confidence or min support.")
+                            else:
+                                st.success("Association rules generated successfully.")
 
-                                    uploaded_rules, uploaded_strong_rules = generate_uploaded_association_rules(
-                                        frequent_itemsets=fpgrowth_itemsets_uploaded,
-                                        uploaded_df=validated_df,
-                                        min_confidence=uploaded_rule_min_confidence,
-                                        strong_min_support=uploaded_min_support,
-                                        strong_min_confidence=uploaded_strong_confidence,
-                                        strong_min_lift=uploaded_strong_lift
+                                rule_kpi1, rule_kpi2, rule_kpi3, rule_kpi4 = st.columns(4)
+
+                                rule_kpi1.metric("Generated Rules", f"{len(uploaded_rules):,}")
+                                rule_kpi2.metric("Strong Rules", f"{len(uploaded_strong_rules):,}")
+                                rule_kpi3.metric("Max Lift", f"{uploaded_rules['lift'].max():.2f}")
+                                rule_kpi4.metric("Avg Confidence", f"{uploaded_rules['confidence'].mean():.2%}")
+
+                                display_rule_cols = [
+                                    "rule_desc",
+                                    "rule_display",
+                                    "support",
+                                    "confidence",
+                                    "lift",
+                                    "leverage",
+                                    "conviction"
+                                ]
+
+                                available_rule_cols = [
+                                    col for col in display_rule_cols
+                                    if col in uploaded_rules.columns
+                                ]
+
+                                st.markdown("### Top 20 Association Rules by Lift")
+
+                                if uploaded_strong_rules.empty:
+                                    st.warning("No strong rules match the current support, confidence, and lift thresholds.")
+
+                                    fallback_top_rules = (
+                                        uploaded_rules
+                                        .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
+                                        .head(20)
                                     )
 
-                            
+                                    st.markdown("### Top 20 Generated Rules Without Strong-Rule Filter")
+                                    st.dataframe(
+                                        fallback_top_rules[available_rule_cols],
+                                        use_container_width=True
+                                    )
 
-                                    if uploaded_rules.empty:
-                                        st.warning("No association rules were generated. Try lowering min confidence or min support.")
-                                    else:
-                                        st.success("Association rules generated successfully.")
+                                else:
+                                    top_20_uploaded_rules = uploaded_strong_rules.head(20)
 
-                                        rule_kpi1, rule_kpi2, rule_kpi3, rule_kpi4 = st.columns(4)
+                                    st.dataframe(
+                                        top_20_uploaded_rules[available_rule_cols],
+                                        use_container_width=True
+                                    )
 
-                                        rule_kpi1.metric("Generated Rules", f"{len(uploaded_rules):,}")
-                                        rule_kpi2.metric("Strong Rules", f"{len(uploaded_strong_rules):,}")
-                                        rule_kpi3.metric("Max Lift", f"{uploaded_rules['lift'].max():.2f}")
-                                        rule_kpi4.metric("Avg Confidence", f"{uploaded_rules['confidence'].mean():.2%}")
+                                    best_uploaded_rule = top_20_uploaded_rules.iloc[0]
 
-                                        display_rule_cols = [
-                                            "rule_desc",
-                                            "rule_display",
-                                            "support",
-                                            "confidence",
-                                            "lift",
-                                            "leverage",
-                                            "conviction"
-                                        ]
+                                    st.markdown(f"""
+                                    <div class="insight-box">
+                                        <b>Top uploaded-dataset rule:</b> {best_uploaded_rule["rule_desc"]}<br>
+                                        <b>Support:</b> {best_uploaded_rule["support"]:.4f}<br>
+                                        <b>Confidence:</b> {best_uploaded_rule["confidence"]:.2%}<br>
+                                        <b>Lift:</b> {best_uploaded_rule["lift"]:.2f}<br>
+                                        <b>Interpretation:</b> This rule is a candidate cross-selling pattern from the uploaded dataset, not causal proof.
+                                    </div>
+                                    """, unsafe_allow_html=True)
 
-                                        available_rule_cols = [
-                                            col for col in display_rule_cols
-                                            if col in uploaded_rules.columns
-                                        ]
+                                st.markdown("### All Generated Rules Preview")
 
-                                        st.markdown("### Top 20 Association Rules by Lift")
+                                all_rules_preview = (
+                                    uploaded_rules
+                                    .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
+                                    .head(50)
+                                )
 
-                                        if uploaded_strong_rules.empty:
-                                            st.warning("No strong rules match the current support, confidence, and lift thresholds.")
+                                st.dataframe(
+                                    all_rules_preview[available_rule_cols],
+                                    use_container_width=True
+                                )
 
-                                            fallback_top_rules = (
-                                                uploaded_rules
-                                                .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
-                                                .head(20)
-                                            )
-
-                                            st.markdown("### Top 20 Generated Rules Without Strong-Rule Filter")
-                                            st.dataframe(
-                                                fallback_top_rules[available_rule_cols],
-                                                use_container_width=True
-                                            )
-
-                                        else:
-                                            top_20_uploaded_rules = uploaded_strong_rules.head(20)
-
-                                            st.dataframe(
-                                                top_20_uploaded_rules[available_rule_cols],
-                                                use_container_width=True
-                                            )
-
-                                            best_uploaded_rule = top_20_uploaded_rules.iloc[0]
-
-                                            st.markdown(f"""
-                                            <div class="insight-box">
-                                                <b>Top uploaded-dataset rule:</b> {best_uploaded_rule["rule_desc"]}<br>
-                                                <b>Support:</b> {best_uploaded_rule["support"]:.4f}<br>
-                                                <b>Confidence:</b> {best_uploaded_rule["confidence"]:.2%}<br>
-                                                <b>Lift:</b> {best_uploaded_rule["lift"]:.2f}<br>
-                                                <b>Interpretation:</b> This rule is a candidate cross-selling pattern from the uploaded dataset, not causal proof.
-                                            </div>
-                                            """, unsafe_allow_html=True)
-
-                                        st.markdown("### All Generated Rules Preview")
-                                        all_rules_preview = (
-                                            uploaded_rules
-                                            .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
-                                            .head(50)
-                                        )
-
-                                        st.dataframe(
-                                            all_rules_preview[available_rule_cols],
-                                            use_container_width=True
-                                        )
-
-                                        st.markdown(f"""
-                                        <div class="insight-box">
-                                            <b>Status:</b> Association rule generation completed.<br>
-                                            <b>Total generated rules:</b> {len(uploaded_rules):,}<br>
-                                            <b>Total strong rules:</b> {len(uploaded_strong_rules):,}<br>
-                                            <b>Next stage:</b> add visual charts and downloadable CSV outputs.
-                                        </div>
-                                        """, unsafe_allow_html=True)
+                                st.markdown(f"""
+                                <div class="insight-box">
+                                    <b>Status:</b> Association rule generation completed.<br>
+                                    <b>Total generated rules:</b> {len(uploaded_rules):,}<br>
+                                    <b>Total strong rules:</b> {len(uploaded_strong_rules):,}<br>
+                                    <b>Next stage:</b> add visual charts and downloadable CSV outputs.
+                                </div>
+                                """, unsafe_allow_html=True)
+                    else:
+                        st.info("Run Apriori and FP-Growth first to enable association rule generation.")
+                                                                                
         except Exception as e:
             st.error(f"Could not read uploaded CSV file: {e}")
