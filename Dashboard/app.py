@@ -536,6 +536,27 @@ def generate_uploaded_association_rules(
 
     return rules, strong_rules
 # ==========================================
+# UPLOADED DATASET OUTPUT EXPORT HELPERS
+# ==========================================
+
+def prepare_rules_for_download(df):
+    if df.empty:
+        return df
+
+    export_df = df.copy()
+
+    for col in ["antecedents", "consequents"]:
+        if col in export_df.columns:
+            export_df[col] = export_df[col].apply(
+                lambda x: ", ".join(sorted([str(i) for i in list(x)]))
+            )
+
+    return export_df
+
+
+def convert_df_to_csv_bytes(df):
+    return df.to_csv(index=False).encode("utf-8")
+# ==========================================
 # 3. SIDEBAR
 # ==========================================
 st.sidebar.title("🛒 Parameters")
@@ -1354,6 +1375,157 @@ with tabs[7]:
                                     <b>Total generated rules:</b> {len(uploaded_rules):,}<br>
                                     <b>Total strong rules:</b> {len(uploaded_strong_rules):,}<br>
                                     <b>Next stage:</b> add visual charts and downloadable CSV outputs.
+                                </div>
+                                """, unsafe_allow_html=True)
+                                # ==========================================
+                                # STAGE 6: VISUAL CHARTS + DOWNLOAD OUTPUTS
+                                # ==========================================
+
+                                st.markdown("---")
+                                st.subheader("Uploaded Dataset Rule Visualizations")
+
+                                rules_for_viz = uploaded_strong_rules.copy()
+
+                                if rules_for_viz.empty:
+                                    rules_for_viz = uploaded_rules.copy()
+
+                                if rules_for_viz.empty:
+                                    st.warning("No rules available for visualization.")
+                                else:
+                                    rules_for_viz = rules_for_viz.sort_values(
+                                        ["lift", "confidence", "support"],
+                                        ascending=[False, False, False]
+                                    )
+
+                                    top_rules_viz = rules_for_viz.head(20).copy()
+
+                                    top_rules_viz["rule_short"] = top_rules_viz["rule_desc"].apply(
+                                        lambda x: x[:90] + "..." if len(str(x)) > 90 else str(x)
+                                    )
+
+                                    chart_col1, chart_col2 = st.columns(2)
+
+                                    with chart_col1:
+                                        fig_top_lift_uploaded = px.bar(
+                                            top_rules_viz.sort_values("lift", ascending=True),
+                                            x="lift",
+                                            y="rule_short",
+                                            orientation="h",
+                                            title="Top 20 Uploaded Rules by Lift",
+                                            hover_data=["rule_desc", "support", "confidence", "lift"]
+                                        )
+
+                                        fig_top_lift_uploaded.update_layout(
+                                            template="plotly_dark",
+                                            plot_bgcolor="rgba(0,0,0,0)",
+                                            paper_bgcolor="rgba(0,0,0,0)",
+                                            yaxis_title="Rule",
+                                            xaxis_title="Lift",
+                                            height=700
+                                        )
+
+                                        st.plotly_chart(fig_top_lift_uploaded, use_container_width=True)
+
+                                    with chart_col2:
+                                        fig_scatter_uploaded = px.scatter(
+                                            rules_for_viz,
+                                            x="support",
+                                            y="confidence",
+                                            color="lift",
+                                            size="lift",
+                                            hover_data=["rule_desc", "support", "confidence", "lift"],
+                                            title="Uploaded Rules: Support vs Confidence Colored by Lift",
+                                            color_continuous_scale="sunsetdark"
+                                        )
+
+                                        fig_scatter_uploaded.update_layout(
+                                            template="plotly_dark",
+                                            plot_bgcolor="rgba(0,0,0,0)",
+                                            paper_bgcolor="rgba(0,0,0,0)",
+                                            xaxis_title="Support",
+                                            yaxis_title="Confidence"
+                                        )
+
+                                        st.plotly_chart(fig_scatter_uploaded, use_container_width=True)
+
+                                    fig_conf_uploaded = px.histogram(
+                                        rules_for_viz,
+                                        x="confidence",
+                                        nbins=20,
+                                        title="Uploaded Rules Confidence Distribution"
+                                    )
+
+                                    fig_conf_uploaded.update_layout(
+                                        template="plotly_dark",
+                                        plot_bgcolor="rgba(0,0,0,0)",
+                                        paper_bgcolor="rgba(0,0,0,0)",
+                                        xaxis_title="Confidence",
+                                        yaxis_title="Number of Rules"
+                                    )
+
+                                    st.plotly_chart(fig_conf_uploaded, use_container_width=True)
+
+
+                                st.markdown("---")
+                                st.subheader("Download Uploaded Dataset Outputs")
+
+                                uploaded_rules_export = prepare_rules_for_download(uploaded_rules)
+                                uploaded_strong_rules_export = prepare_rules_for_download(uploaded_strong_rules)
+
+                                if uploaded_strong_rules.empty:
+                                    uploaded_top20_export = (
+                                        uploaded_rules_export
+                                        .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
+                                        .head(20)
+                                    )
+                                else:
+                                    uploaded_top20_export = (
+                                        uploaded_strong_rules_export
+                                        .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
+                                        .head(20)
+                                    )
+
+                                download_col1, download_col2, download_col3 = st.columns(3)
+
+                                with download_col1:
+                                    st.download_button(
+                                        label="Download All Uploaded Rules CSV",
+                                        data=convert_df_to_csv_bytes(uploaded_rules_export),
+                                        file_name="uploaded_association_rules_all.csv",
+                                        mime="text/csv"
+                                    )
+
+                                with download_col2:
+                                    st.download_button(
+                                        label="Download Strong Uploaded Rules CSV",
+                                        data=convert_df_to_csv_bytes(uploaded_strong_rules_export),
+                                        file_name="uploaded_association_rules_strong.csv",
+                                        mime="text/csv"
+                                    )
+
+                                with download_col3:
+                                    st.download_button(
+                                        label="Download Top 20 Uploaded Rules CSV",
+                                        data=convert_df_to_csv_bytes(uploaded_top20_export),
+                                        file_name="uploaded_top_20_association_rules.csv",
+                                        mime="text/csv"
+                                    )
+
+                                if "runtime_summary_uploaded" in st.session_state:
+                                    runtime_summary_uploaded_export = st.session_state["runtime_summary_uploaded"]
+
+                                    st.download_button(
+                                        label="Download Uploaded Algorithm Runtime CSV",
+                                        data=convert_df_to_csv_bytes(runtime_summary_uploaded_export),
+                                        file_name="uploaded_algorithm_runtime_summary.csv",
+                                        mime="text/csv"
+                                    )
+
+                                st.markdown(f"""
+                                <div class="insight-box">
+                                    <b>Status:</b> Visual charts and downloadable outputs completed.<br>
+                                    <b>Downloadable files:</b> all rules, strong rules, top 20 rules, and runtime summary.<br>
+                                    <b>Stage 6 completed.</b>
                                 </div>
                                 """, unsafe_allow_html=True)
                     else:
