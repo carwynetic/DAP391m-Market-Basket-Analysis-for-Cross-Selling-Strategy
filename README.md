@@ -1,7 +1,7 @@
 # DAP391m-Market-Basket-Analysis-for-Cross-Selling-Strategy
 
-#Tree Structered
-'DAP391m-Market-Basket-Analysis-for-Cross-Selling-Strategy/
+```text
+DAP391m-Market-Basket-Analysis-for-Cross-Selling-Strategy/
 ├── .devcontainer/
 ├── Source_code/
 │   └── regression.ipynb
@@ -23,4 +23,4 @@
         ├── online_retail_ii_basket_df.csv
         ├── product_lookup.csv
         ├── top_20_association_rules.csv
-        └── top_product_frequency.csv'
+        └── top_product_frequency.csv
