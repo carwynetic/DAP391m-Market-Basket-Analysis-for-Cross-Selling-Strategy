@@ -6,6 +6,8 @@ import plotly.graph_objects as go
 import os
 import ast
 
+from mlxtend.preprocessing import TransactionEncoder
+
 # ==========================================
 # 1. PAGE CONFIG & CUSTOM CSS
 # ==========================================
@@ -342,6 +344,53 @@ def summarize_uploaded_mba_dataset(df):
         "min_basket_size": min_basket_size,
         "max_basket_size": max_basket_size
     }
+# ==========================================
+# UPLOADED DATASET BASKET CONSTRUCTION
+# ==========================================
+
+def build_uploaded_baskets(df):
+    df = df.copy()
+
+    df["InvoiceNo"] = df["InvoiceNo"].astype(str).str.strip()
+    df["StockCode"] = df["StockCode"].astype(str).str.strip()
+
+    basket_df = (
+        df.groupby("InvoiceNo")["StockCode"]
+        .apply(lambda x: sorted(set(x)))
+        .reset_index(name="Items")
+    )
+
+    basket_df["BasketSize"] = basket_df["Items"].apply(len)
+
+    total_baskets_before = len(basket_df)
+
+    basket_df_filtered = basket_df[basket_df["BasketSize"] >= 2].copy()
+
+    total_baskets_after = len(basket_df_filtered)
+    removed_single_item_baskets = total_baskets_before - total_baskets_after
+
+    return basket_df, basket_df_filtered, {
+        "total_baskets_before": total_baskets_before,
+        "total_baskets_after": total_baskets_after,
+        "removed_single_item_baskets": removed_single_item_baskets
+    }
+
+
+def encode_uploaded_transactions(basket_df_filtered):
+    transactions = basket_df_filtered["Items"].tolist()
+
+    te = TransactionEncoder()
+    encoded_array = te.fit(transactions).transform(transactions)
+
+    transaction_matrix = pd.DataFrame(
+        encoded_array,
+        columns=te.columns_,
+        index=basket_df_filtered["InvoiceNo"]
+    )
+
+    transaction_matrix.index.name = "InvoiceNo"
+
+    return transaction_matrix
 
 
 # ==========================================
@@ -853,6 +902,44 @@ with tabs[7]:
                     <b>Next stage:</b> build baskets from InvoiceNo and StockCode, then encode transactions for Apriori / FP-Growth.
                 </div>
                 """, unsafe_allow_html=True)
+                st.markdown("---")
+                st.subheader("Basket Construction")
+
+                basket_df, basket_df_filtered, basket_stats = build_uploaded_baskets(validated_df)
+
+                b1, b2, b3 = st.columns(3)
+                b1.metric("Baskets Before Filtering", f"{basket_stats['total_baskets_before']:,}")
+                b2.metric("Baskets After Filtering", f"{basket_stats['total_baskets_after']:,}")
+                b3.metric("Removed Single-Item Baskets", f"{basket_stats['removed_single_item_baskets']:,}")
+
+                st.markdown("### Basket Preview")
+                basket_preview = basket_df_filtered.copy()
+                basket_preview["Items"] = basket_preview["Items"].apply(lambda x: ", ".join(x))
+                st.dataframe(basket_preview.head(20), use_container_width=True)
+
+                if basket_df_filtered.empty:
+                    st.error("No valid baskets remain after filtering. Apriori / FP-Growth cannot run.")
+                else:
+                    st.subheader("Transaction Encoding")
+
+                    transaction_matrix = encode_uploaded_transactions(basket_df_filtered)
+
+                    e1, e2, e3 = st.columns(3)
+                    e1.metric("Transaction Matrix Rows", f"{transaction_matrix.shape[0]:,}")
+                    e2.metric("Transaction Matrix Columns", f"{transaction_matrix.shape[1]:,}")
+                    e3.metric("Unique Products Encoded", f"{transaction_matrix.shape[1]:,}")
+
+                    st.markdown("### Encoded Matrix Preview")
+                    encoded_preview = transaction_matrix.iloc[:10, :20].reset_index()
+                    st.dataframe(encoded_preview, use_container_width=True)
+
+                    st.markdown(f"""
+                    <div class="insight-box">
+                        <b>Status:</b> Basket construction and transaction encoding completed successfully.<br>
+                        <b>Matrix shape:</b> {transaction_matrix.shape[0]:,} baskets × {transaction_matrix.shape[1]:,} products.<br>
+                        <b>Next stage:</b> run Apriori and FP-Growth on this transaction matrix.
+                    </div>
+                    """, unsafe_allow_html=True)
 
         except Exception as e:
             st.error(f"Could not read uploaded CSV file: {e}")
