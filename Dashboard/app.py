@@ -556,6 +556,131 @@ def prepare_rules_for_download(df):
 
 def convert_df_to_csv_bytes(df):
     return df.to_csv(index=False).encode("utf-8")
+
+# ==========================================
+# UPLOADED REGRESSION DATASET VALIDATION
+# ==========================================
+
+REQUIRED_REGRESSION_COLUMNS = [
+    "InvoiceNo",
+    "Items",
+    "BasketSize",
+    "ProductRevenue",
+    "TotalQuantity",
+    "AvgUnitPrice",
+    "Country"
+]
+
+OPTIONAL_REGRESSION_COLUMNS = [
+    "CustomerID"
+]
+
+
+def parse_items_list(value):
+    if pd.isna(value):
+        return []
+
+    if isinstance(value, list):
+        return [str(x).strip() for x in value]
+
+    s = str(value).strip()
+
+    try:
+        parsed = ast.literal_eval(s)
+        if isinstance(parsed, (list, tuple, set)):
+            return [str(x).strip() for x in parsed]
+    except Exception:
+        pass
+
+    s = s.replace("[", "").replace("]", "").replace("'", "").replace('"', "")
+    return [x.strip() for x in s.split(",") if x.strip()]
+
+
+def validate_uploaded_regression_dataset(df):
+    errors = []
+    warnings = []
+
+    df = df.copy()
+    df.columns = (
+        df.columns
+        .astype(str)
+        .str.replace("\ufeff", "", regex=False)
+        .str.strip()
+    )
+
+    missing_cols = [col for col in REQUIRED_REGRESSION_COLUMNS if col not in df.columns]
+    if missing_cols:
+        errors.append(f"Missing required columns: {missing_cols}")
+        return df, errors, warnings
+
+    if df["InvoiceNo"].isna().sum() > 0:
+        errors.append("InvoiceNo contains missing values.")
+
+    if df["Items"].isna().sum() > 0:
+        errors.append("Items contains missing values.")
+
+    if df["Country"].isna().sum() > 0:
+        errors.append("Country contains missing values.")
+
+    numeric_cols = [
+        "BasketSize",
+        "ProductRevenue",
+        "TotalQuantity",
+        "AvgUnitPrice"
+    ]
+
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        if df[col].isna().sum() > 0:
+            errors.append(f"{col} contains non-numeric or missing values.")
+
+        if (df[col] <= 0).sum() > 0:
+            errors.append(f"{col} contains values <= 0.")
+
+    duplicate_invoice_count = df["InvoiceNo"].duplicated().sum()
+    if duplicate_invoice_count > 0:
+        warnings.append(
+            f"InvoiceNo contains {duplicate_invoice_count} duplicated values. "
+            "Regression dataset should normally be one row per basket."
+        )
+
+    parsed_items = df["Items"].apply(parse_items_list)
+    empty_items_count = parsed_items.apply(len).eq(0).sum()
+
+    if empty_items_count > 0:
+        errors.append(f"Items contains {empty_items_count} empty baskets.")
+
+    if "BasketSize" in df.columns:
+        parsed_item_counts = parsed_items.apply(len)
+        mismatch_count = (parsed_item_counts != df["BasketSize"]).sum()
+
+        if mismatch_count > 0:
+            warnings.append(
+                f"{mismatch_count} rows have BasketSize different from the number of parsed Items."
+            )
+
+    if "CustomerID" not in df.columns:
+        warnings.append("CustomerID column is missing. This is acceptable because it is not required for regression.")
+
+    return df, errors, warnings
+
+
+def summarize_uploaded_regression_dataset(df):
+    parsed_items = df["Items"].apply(parse_items_list)
+
+    return {
+        "rows": len(df),
+        "unique_invoices": df["InvoiceNo"].nunique(),
+        "countries": df["Country"].nunique(),
+        "avg_basket_size": df["BasketSize"].mean(),
+        "avg_revenue": df["ProductRevenue"].mean(),
+        "median_revenue": df["ProductRevenue"].median(),
+        "avg_quantity": df["TotalQuantity"].mean(),
+        "avg_unit_price": df["AvgUnitPrice"].mean(),
+        "unique_products_estimated": len(set(item for items in parsed_items for item in items))
+    }
+
 # ==========================================
 # 3. SIDEBAR
 # ==========================================
@@ -578,7 +703,8 @@ tabs = st.tabs([
     "🧮 5. Add-to-Cart Simulator", 
     "📈 6. Model Results", 
     "💡 7. Final Conclusion",
-    "🧪 8. Run MBA on New Dataset"
+    "🧪 8. Run MBA on New Dataset",
+    "📈 9. Run Regression on New Dataset"
 ])
 # ------------------------------------------
 # TAB 1: EXECUTIVE OVERVIEW
@@ -1603,3 +1729,137 @@ with tabs[7]:
                                                                                 
         except Exception as e:
             st.error(f"Could not read uploaded CSV file: {e}")
+
+# ------------------------------------------
+# TAB 9: RUN REGRESSION ON NEW DATASET - UPLOAD + VALIDATION ONLY
+# ------------------------------------------
+with tabs[8]:
+    st.header("Run Regression on New Dataset")
+
+    st.markdown(
+        "Upload a basket-level regression-ready CSV dataset. "
+        "This stage only validates the uploaded file before creating rule_applied and running OLS regression."
+    )
+
+    uploaded_regression_file = st.file_uploader(
+        "Upload generated regression test dataset",
+        type=["csv"],
+        key="regression_dataset_uploader",
+        help="Required columns: InvoiceNo, Items, BasketSize, ProductRevenue, TotalQuantity, AvgUnitPrice, Country"
+    )
+
+    if uploaded_regression_file is None:
+        st.info("Upload one generated regression CSV file to start validation.")
+    else:
+        try:
+            uploaded_regression_df = pd.read_csv(uploaded_regression_file)
+
+            uploaded_regression_df.columns = (
+                uploaded_regression_df.columns
+                .astype(str)
+                .str.replace("\ufeff", "", regex=False)
+                .str.strip()
+            )
+
+            st.subheader("Uploaded Regression Dataset Preview")
+            st.dataframe(uploaded_regression_df.head(20), use_container_width=True)
+
+            validated_regression_df, regression_errors, regression_warnings = validate_uploaded_regression_dataset(
+                uploaded_regression_df
+            )
+
+            st.subheader("Regression Dataset Validation Result")
+
+            if regression_errors:
+                st.error("Uploaded regression dataset is not valid.")
+                for err in regression_errors:
+                    st.markdown(f"- {err}")
+            else:
+                st.success("Uploaded regression dataset is valid.")
+
+                regression_summary = summarize_uploaded_regression_dataset(validated_regression_df)
+
+                r1, r2, r3, r4 = st.columns(4)
+                r1.metric("Rows", f"{regression_summary['rows']:,}")
+                r2.metric("Unique Invoices", f"{regression_summary['unique_invoices']:,}")
+                r3.metric("Countries", f"{regression_summary['countries']:,}")
+                r4.metric("Estimated Products", f"{regression_summary['unique_products_estimated']:,}")
+
+                r5, r6, r7, r8 = st.columns(4)
+                r5.metric("Avg Basket Size", f"{regression_summary['avg_basket_size']:.2f}")
+                r6.metric("Avg Revenue", f"£{regression_summary['avg_revenue']:.2f}")
+                r7.metric("Avg Quantity", f"{regression_summary['avg_quantity']:.2f}")
+                r8.metric("Avg Unit Price", f"£{regression_summary['avg_unit_price']:.2f}")
+
+                if regression_warnings:
+                    st.warning("Dataset is valid but has warnings:")
+                    for warn in regression_warnings:
+                        st.markdown(f"- {warn}")
+
+                st.subheader("Column Check")
+
+                regression_column_check = pd.DataFrame({
+                    "Required Column": REQUIRED_REGRESSION_COLUMNS,
+                    "Exists": [col in validated_regression_df.columns for col in REQUIRED_REGRESSION_COLUMNS]
+                })
+
+                st.dataframe(regression_column_check, use_container_width=True)
+
+                st.subheader("Numeric Summary")
+
+                numeric_summary_cols = [
+                    "BasketSize",
+                    "ProductRevenue",
+                    "TotalQuantity",
+                    "AvgUnitPrice"
+                ]
+
+                numeric_summary = (
+                    validated_regression_df[numeric_summary_cols]
+                    .describe()
+                    .T
+                    .reset_index()
+                    .rename(columns={"index": "Feature"})
+                )
+
+                st.dataframe(numeric_summary, use_container_width=True)
+
+                st.subheader("Country Distribution")
+
+                country_summary = (
+                    validated_regression_df["Country"]
+                    .value_counts()
+                    .reset_index()
+                )
+                country_summary.columns = ["Country", "Basket_Count"]
+
+                st.dataframe(country_summary.head(20), use_container_width=True)
+
+                fig_country_regression = px.bar(
+                    country_summary.head(10),
+                    x="Basket_Count",
+                    y="Country",
+                    orientation="h",
+                    title="Top Countries in Uploaded Regression Dataset"
+                )
+
+                fig_country_regression.update_layout(
+                    template="plotly_dark",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    yaxis={"categoryorder": "total ascending"}
+                )
+
+                st.plotly_chart(fig_country_regression, use_container_width=True)
+
+                st.session_state["validated_regression_df"] = validated_regression_df
+
+                st.markdown("""
+                <div class="insight-box">
+                    <b>Status:</b> Regression dataset passed schema and basic data validation.<br>
+                    <b>Next stage:</b> select a representative association rule and create the rule_applied variable.
+                </div>
+                """, unsafe_allow_html=True)
+
+        except Exception as e:
+            st.error(f"Could not read uploaded regression CSV file: {e}")
