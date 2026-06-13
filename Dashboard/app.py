@@ -1528,6 +1528,146 @@ with tabs[7]:
                                     <b>Stage 6 completed.</b>
                                 </div>
                                 """, unsafe_allow_html=True)
+
+                                # ==========================================
+                                # STAGE 7: BUSINESS RECOMMENDATION CARDS
+                                # ==========================================
+
+                                st.markdown("---")
+                                st.subheader("Uploaded Dataset Business Recommendations")
+
+                                recommendation_rules = uploaded_strong_rules.copy()
+
+                                if recommendation_rules.empty:
+                                    recommendation_rules = uploaded_rules.copy()
+
+                                if recommendation_rules.empty:
+                                    st.warning("No rules available for business recommendation.")
+                                else:
+                                    recommendation_rules = recommendation_rules.sort_values(
+                                        ["lift", "confidence", "support"],
+                                        ascending=[False, False, False]
+                                    ).head(10)
+
+                                    st.markdown(
+                                        "These recommendation cards translate uploaded-dataset association rules into candidate cross-selling actions."
+                                    )
+
+                                    for idx, row in recommendation_rules.iterrows():
+                                        support = row["support"]
+                                        confidence = row["confidence"]
+                                        lift = row["lift"]
+
+                                        if confidence >= 0.80 and lift >= 5:
+                                            action = "Recommend consequent at checkout"
+                                            priority = "High Priority"
+                                        elif lift >= 5:
+                                            action = "Create bundle promotion"
+                                            priority = "Medium Priority"
+                                        elif confidence >= 0.60:
+                                            action = "Add to Frequently Bought Together"
+                                            priority = "Medium Priority"
+                                        else:
+                                            action = "Monitor as weak recommendation candidate"
+                                            priority = "Low Priority"
+
+                                        st.markdown(f"""
+                                        <div class="glass-card" style="padding: 15px;">
+                                            <h4 style="color:#f4a460; margin-bottom:5px;">
+                                                Recommendation {idx + 1}: {priority}
+                                            </h4>
+
+                                            <b>Rule:</b> {row["rule_desc"]}<br>
+                                            <b>Full Rule Display:</b> {row["rule_display"]}<br><br>
+
+                                            <b>Support:</b> {support:.4f}<br>
+                                            <b>Confidence:</b> {confidence:.2%}<br>
+                                            <b>Lift:</b> {lift:.2f}<br><br>
+
+                                            <b style="color:#50C878;">Suggested Action:</b> {action}<br>
+                                            <span style="color:#A0A0A0;">
+                                                Note: This recommendation is based on association rule mining from the uploaded dataset.
+                                                It is a cross-selling hypothesis, not causal proof.
+                                            </span>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+
+                                    st.markdown(f"""
+                                    <div class="insight-box">
+                                        <b>Status:</b> Business recommendation cards completed.<br>
+                                        <b>Displayed recommendations:</b> {len(recommendation_rules):,}<br>
+                                        <b>Step 1 completed:</b> uploaded dataset can now run Association Rule Mining and return interpretable outputs.
+                                    </div>
+                                    """, unsafe_allow_html=True)# ==========================================
+                                # STAGE 7: BUSINESS RECOMMENDATION CARDS
+                                # ==========================================
+
+                                st.markdown("---")
+                                st.subheader("Uploaded Dataset Business Recommendations")
+
+                                recommendation_rules = uploaded_strong_rules.copy()
+
+                                if recommendation_rules.empty:
+                                    recommendation_rules = uploaded_rules.copy()
+
+                                if recommendation_rules.empty:
+                                    st.warning("No rules available for business recommendation.")
+                                else:
+                                    recommendation_rules = recommendation_rules.sort_values(
+                                        ["lift", "confidence", "support"],
+                                        ascending=[False, False, False]
+                                    ).head(10)
+
+                                    st.markdown(
+                                        "These recommendation cards translate uploaded-dataset association rules into candidate cross-selling actions."
+                                    )
+
+                                    for idx, row in recommendation_rules.iterrows():
+                                        support = row["support"]
+                                        confidence = row["confidence"]
+                                        lift = row["lift"]
+
+                                        if confidence >= 0.80 and lift >= 5:
+                                            action = "Recommend consequent at checkout"
+                                            priority = "High Priority"
+                                        elif lift >= 5:
+                                            action = "Create bundle promotion"
+                                            priority = "Medium Priority"
+                                        elif confidence >= 0.60:
+                                            action = "Add to Frequently Bought Together"
+                                            priority = "Medium Priority"
+                                        else:
+                                            action = "Monitor as weak recommendation candidate"
+                                            priority = "Low Priority"
+
+                                        st.markdown(f"""
+                                        <div class="glass-card" style="padding: 15px;">
+                                            <h4 style="color:#f4a460; margin-bottom:5px;">
+                                                Recommendation {idx + 1}: {priority}
+                                            </h4>
+
+                                            <b>Rule:</b> {row["rule_desc"]}<br>
+                                            <b>Full Rule Display:</b> {row["rule_display"]}<br><br>
+
+                                            <b>Support:</b> {support:.4f}<br>
+                                            <b>Confidence:</b> {confidence:.2%}<br>
+                                            <b>Lift:</b> {lift:.2f}<br><br>
+
+                                            <b style="color:#50C878;">Suggested Action:</b> {action}<br>
+                                            <span style="color:#A0A0A0;">
+                                                Note: This recommendation is based on association rule mining from the uploaded dataset.
+                                                It is a cross-selling hypothesis, not causal proof.
+                                            </span>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+
+                                    st.markdown(f"""
+                                    <div class="insight-box">
+                                        <b>Status:</b> Business recommendation cards completed.<br>
+                                        <b>Displayed recommendations:</b> {len(recommendation_rules):,}<br>
+                                        <b>Step 1 completed:</b> uploaded dataset can now run Association Rule Mining and return interpretable outputs.
+                                    </div>
+                                    """, unsafe_allow_html=True)
                     else:
                         st.info("Run Apriori and FP-Growth first to enable association rule generation.")
                                                                                 
