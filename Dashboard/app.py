@@ -7,6 +7,8 @@ import os
 import ast
 
 from mlxtend.preprocessing import TransactionEncoder
+from mlxtend.frequent_patterns import apriori, fpgrowth
+import time
 
 # ==========================================
 # 1. PAGE CONFIG & CUSTOM CSS
@@ -391,7 +393,58 @@ def encode_uploaded_transactions(basket_df_filtered):
     transaction_matrix.index.name = "InvoiceNo"
 
     return transaction_matrix
+# ==========================================
+# UPLOADED DATASET FREQUENT ITEMSET MINING
+# ==========================================
 
+def run_uploaded_frequent_itemset_mining(transaction_matrix, min_support=0.01, max_len=3):
+    results = {}
+
+    # Apriori
+    apriori_start = time.perf_counter()
+    apriori_itemsets = apriori(
+        transaction_matrix,
+        min_support=min_support,
+        use_colnames=True,
+        max_len=max_len
+    )
+    apriori_runtime = time.perf_counter() - apriori_start
+
+    # FP-Growth
+    fpgrowth_start = time.perf_counter()
+    fpgrowth_itemsets = fpgrowth(
+        transaction_matrix,
+        min_support=min_support,
+        use_colnames=True,
+        max_len=max_len
+    )
+    fpgrowth_runtime = time.perf_counter() - fpgrowth_start
+
+    # Format itemsets for display
+    for df in [apriori_itemsets, fpgrowth_itemsets]:
+        if not df.empty:
+            df["itemsets_str"] = df["itemsets"].apply(lambda x: ", ".join(sorted(list(x))))
+            df["itemset_size"] = df["itemsets"].apply(lambda x: len(x))
+            df.sort_values(["support", "itemset_size"], ascending=[False, False], inplace=True)
+
+    runtime_summary = pd.DataFrame([
+        {
+            "Algorithm": "Apriori",
+            "Runtime_Seconds": apriori_runtime,
+            "Frequent_Itemsets": len(apriori_itemsets)
+        },
+        {
+            "Algorithm": "FP-Growth",
+            "Runtime_Seconds": fpgrowth_runtime,
+            "Frequent_Itemsets": len(fpgrowth_itemsets)
+        }
+    ])
+
+    results["apriori_itemsets"] = apriori_itemsets
+    results["fpgrowth_itemsets"] = fpgrowth_itemsets
+    results["runtime_summary"] = runtime_summary
+
+    return results
 
 # ==========================================
 # 3. SIDEBAR
@@ -940,6 +993,126 @@ with tabs[7]:
                         <b>Next stage:</b> run Apriori and FP-Growth on this transaction matrix.
                     </div>
                     """, unsafe_allow_html=True)
+                    # ==========================================
+                    # STAGE 4: APRIORI + FP-GROWTH FREQUENT ITEMSET MINING
+                    # ==========================================
 
+                    st.markdown("---")
+                    st.subheader("Frequent Itemset Mining")
+
+                    m1, m2 = st.columns(2)
+
+                    with m1:
+                        uploaded_min_support = st.slider(
+                            "Min Support for Uploaded Dataset",
+                            min_value=0.001,
+                            max_value=0.100,
+                            value=0.010,
+                            step=0.001,
+                            format="%.3f"
+                        )
+
+                    with m2:
+                        uploaded_max_len = st.slider(
+                            "Max Itemset Length",
+                            min_value=1,
+                            max_value=5,
+                            value=3,
+                            step=1
+                        )
+
+                    run_mining = st.button("Run Apriori and FP-Growth on Uploaded Dataset")
+
+                    if run_mining:
+                        with st.spinner("Running Apriori and FP-Growth..."):
+                            mining_results = run_uploaded_frequent_itemset_mining(
+                                transaction_matrix=transaction_matrix,
+                                min_support=uploaded_min_support,
+                                max_len=uploaded_max_len
+                            )
+
+                        apriori_itemsets_uploaded = mining_results["apriori_itemsets"]
+                        fpgrowth_itemsets_uploaded = mining_results["fpgrowth_itemsets"]
+                        runtime_summary_uploaded = mining_results["runtime_summary"]
+
+                        st.success("Apriori and FP-Growth completed successfully.")
+
+                        st.subheader("Algorithm Runtime Summary")
+                        st.dataframe(runtime_summary_uploaded, use_container_width=True)
+
+                        r1, r2, r3 = st.columns(3)
+
+                        apriori_runtime = runtime_summary_uploaded.loc[
+                            runtime_summary_uploaded["Algorithm"] == "Apriori",
+                            "Runtime_Seconds"
+                        ].iloc[0]
+
+                        fpgrowth_runtime = runtime_summary_uploaded.loc[
+                            runtime_summary_uploaded["Algorithm"] == "FP-Growth",
+                            "Runtime_Seconds"
+                        ].iloc[0]
+
+                        r1.metric("Apriori Frequent Itemsets", f"{len(apriori_itemsets_uploaded):,}")
+                        r2.metric("FP-Growth Frequent Itemsets", f"{len(fpgrowth_itemsets_uploaded):,}")
+
+                        if fpgrowth_runtime > 0:
+                            speedup = apriori_runtime / fpgrowth_runtime
+                            r3.metric("FP-Growth Speed-up", f"{speedup:.2f}x")
+                        else:
+                            r3.metric("FP-Growth Speed-up", "N/A")
+
+                        if apriori_itemsets_uploaded.empty and fpgrowth_itemsets_uploaded.empty:
+                            st.warning(
+                                "No frequent itemsets were found. Try lowering min_support or using a dataset with stronger repeated basket patterns."
+                            )
+                        else:
+                            c_apr, c_fp = st.columns(2)
+
+                            with c_apr:
+                                st.markdown("### Apriori Frequent Itemsets")
+                                if apriori_itemsets_uploaded.empty:
+                                    st.info("Apriori returned no frequent itemsets.")
+                                else:
+                                    st.dataframe(
+                                        apriori_itemsets_uploaded[
+                                            ["itemsets_str", "itemset_size", "support"]
+                                        ].head(50),
+                                        use_container_width=True
+                                    )
+
+                            with c_fp:
+                                st.markdown("### FP-Growth Frequent Itemsets")
+                                if fpgrowth_itemsets_uploaded.empty:
+                                    st.info("FP-Growth returned no frequent itemsets.")
+                                else:
+                                    st.dataframe(
+                                        fpgrowth_itemsets_uploaded[
+                                            ["itemsets_str", "itemset_size", "support"]
+                                        ].head(50),
+                                        use_container_width=True
+                                    )
+
+                            fig_runtime_uploaded = px.bar(
+                                runtime_summary_uploaded,
+                                x="Algorithm",
+                                y="Runtime_Seconds",
+                                title="Uploaded Dataset Runtime: Apriori vs FP-Growth",
+                                color="Algorithm"
+                            )
+                            fig_runtime_uploaded.update_layout(
+                                template="plotly_dark",
+                                plot_bgcolor="rgba(0,0,0,0)",
+                                paper_bgcolor="rgba(0,0,0,0)"
+                            )
+                            st.plotly_chart(fig_runtime_uploaded, use_container_width=True)
+
+                            st.markdown(f"""
+                            <div class="insight-box">
+                                <b>Status:</b> Frequent itemset mining completed.<br>
+                                <b>Apriori itemsets:</b> {len(apriori_itemsets_uploaded):,}<br>
+                                <b>FP-Growth itemsets:</b> {len(fpgrowth_itemsets_uploaded):,}<br>
+                                <b>Next stage:</b> generate association rules from these frequent itemsets.
+                            </div>
+                            """, unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Could not read uploaded CSV file: {e}")
