@@ -7,7 +7,8 @@ import os
 import ast
 
 from mlxtend.preprocessing import TransactionEncoder
-from mlxtend.frequent_patterns import apriori, fpgrowth
+from mlxtend.frequent_patterns import apriori, fpgrowth, association_rules
+
 import time
 
 # ==========================================
@@ -445,7 +446,95 @@ def run_uploaded_frequent_itemset_mining(transaction_matrix, min_support=0.01, m
     results["runtime_summary"] = runtime_summary
 
     return results
+# ==========================================
+# UPLOADED DATASET ASSOCIATION RULE GENERATION
+# ==========================================
 
+def build_uploaded_product_map(df):
+    temp = df[["StockCode", "Description"]].copy()
+    temp["StockCode"] = temp["StockCode"].astype(str).str.strip()
+    temp["Description"] = temp["Description"].astype(str).str.strip()
+
+    temp = temp.dropna(subset=["StockCode", "Description"])
+    temp = temp[temp["Description"] != ""]
+
+    return (
+        temp.groupby("StockCode")["Description"]
+        .agg(lambda x: x.mode().iloc[0] if not x.mode().empty else x.iloc[0])
+        .to_dict()
+    )
+
+
+def uploaded_itemset_to_text(itemset, uploaded_product_map=None, keep_code=True):
+    items = sorted([str(x).strip() for x in list(itemset)])
+    output = []
+
+    for code in items:
+        desc = None
+        if uploaded_product_map is not None:
+            desc = uploaded_product_map.get(code)
+
+        if desc:
+            output.append(f"{code} - {desc}" if keep_code else desc)
+        else:
+            output.append(code)
+
+    return " + ".join(output)
+
+
+def generate_uploaded_association_rules(
+    frequent_itemsets,
+    uploaded_df,
+    min_confidence=0.2,
+    strong_min_support=0.01,
+    strong_min_confidence=0.4,
+    strong_min_lift=2.0
+):
+    if frequent_itemsets.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    rules = association_rules(
+        frequent_itemsets,
+        metric="confidence",
+        min_threshold=min_confidence
+    )
+
+    if rules.empty:
+        return rules, rules
+
+    uploaded_product_map = build_uploaded_product_map(uploaded_df)
+
+    rules = rules.copy()
+
+    rules["antecedents_str"] = rules["antecedents"].apply(
+        lambda x: uploaded_itemset_to_text(x, uploaded_product_map, keep_code=True)
+    )
+    rules["consequents_str"] = rules["consequents"].apply(
+        lambda x: uploaded_itemset_to_text(x, uploaded_product_map, keep_code=True)
+    )
+
+    rules["antecedents_desc"] = rules["antecedents"].apply(
+        lambda x: uploaded_itemset_to_text(x, uploaded_product_map, keep_code=False)
+    )
+    rules["consequents_desc"] = rules["consequents"].apply(
+        lambda x: uploaded_itemset_to_text(x, uploaded_product_map, keep_code=False)
+    )
+
+    rules["rule_desc"] = rules["antecedents_desc"] + " → " + rules["consequents_desc"]
+    rules["rule_display"] = rules["antecedents_str"] + " → " + rules["consequents_str"]
+
+    strong_rules = rules[
+        (rules["support"] >= strong_min_support) &
+        (rules["confidence"] >= strong_min_confidence) &
+        (rules["lift"] >= strong_min_lift)
+    ].copy()
+
+    strong_rules = strong_rules.sort_values(
+        ["lift", "confidence", "support"],
+        ascending=[False, False, False]
+    )
+
+    return rules, strong_rules
 # ==========================================
 # 3. SIDEBAR
 # ==========================================
@@ -1114,5 +1203,143 @@ with tabs[7]:
                                 <b>Next stage:</b> generate association rules from these frequent itemsets.
                             </div>
                             """, unsafe_allow_html=True)
+                            # ==========================================
+                            # STAGE 5: ASSOCIATION RULE GENERATION
+                            # ==========================================
+
+                            st.markdown("---")
+                            st.subheader("Association Rule Generation")
+
+                            g1, g2, g3 = st.columns(3)
+
+                            with g1:
+                                uploaded_rule_min_confidence = st.slider(
+                                    "Rule Generation Min Confidence",
+                                    min_value=0.05,
+                                    max_value=1.00,
+                                    value=0.20,
+                                    step=0.05,
+                                    format="%.2f"
+                                )
+
+                            with g2:
+                                uploaded_strong_confidence = st.slider(
+                                    "Strong Rule Min Confidence",
+                                    min_value=0.05,
+                                    max_value=1.00,
+                                    value=0.40,
+                                    step=0.05,
+                                    format="%.2f"
+                                )
+
+                            with g3:
+                                uploaded_strong_lift = st.slider(
+                                    "Strong Rule Min Lift",
+                                    min_value=1.00,
+                                    max_value=10.00,
+                                    value=2.00,
+                                    step=0.50,
+                                    format="%.2f"
+                                )
+
+                            generate_rules_button = st.button("Generate Association Rules from Uploaded Dataset")
+
+                            if generate_rules_button:
+                                if fpgrowth_itemsets_uploaded.empty:
+                                    st.error("FP-Growth frequent itemsets are empty. Cannot generate association rules.")
+                                else:
+                                    uploaded_rules, uploaded_strong_rules = generate_uploaded_association_rules(
+                                        frequent_itemsets=fpgrowth_itemsets_uploaded,
+                                        uploaded_df=validated_df,
+                                        min_confidence=uploaded_rule_min_confidence,
+                                        strong_min_support=uploaded_min_support,
+                                        strong_min_confidence=uploaded_strong_confidence,
+                                        strong_min_lift=uploaded_strong_lift
+                                    )
+
+                                    if uploaded_rules.empty:
+                                        st.warning("No association rules were generated. Try lowering min confidence or min support.")
+                                    else:
+                                        st.success("Association rules generated successfully.")
+
+                                        rule_kpi1, rule_kpi2, rule_kpi3, rule_kpi4 = st.columns(4)
+
+                                        rule_kpi1.metric("Generated Rules", f"{len(uploaded_rules):,}")
+                                        rule_kpi2.metric("Strong Rules", f"{len(uploaded_strong_rules):,}")
+                                        rule_kpi3.metric("Max Lift", f"{uploaded_rules['lift'].max():.2f}")
+                                        rule_kpi4.metric("Avg Confidence", f"{uploaded_rules['confidence'].mean():.2%}")
+
+                                        display_rule_cols = [
+                                            "rule_desc",
+                                            "rule_display",
+                                            "support",
+                                            "confidence",
+                                            "lift",
+                                            "leverage",
+                                            "conviction"
+                                        ]
+
+                                        available_rule_cols = [
+                                            col for col in display_rule_cols
+                                            if col in uploaded_rules.columns
+                                        ]
+
+                                        st.markdown("### Top 20 Association Rules by Lift")
+
+                                        if uploaded_strong_rules.empty:
+                                            st.warning("No strong rules match the current support, confidence, and lift thresholds.")
+
+                                            fallback_top_rules = (
+                                                uploaded_rules
+                                                .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
+                                                .head(20)
+                                            )
+
+                                            st.markdown("### Top 20 Generated Rules Without Strong-Rule Filter")
+                                            st.dataframe(
+                                                fallback_top_rules[available_rule_cols],
+                                                use_container_width=True
+                                            )
+
+                                        else:
+                                            top_20_uploaded_rules = uploaded_strong_rules.head(20)
+
+                                            st.dataframe(
+                                                top_20_uploaded_rules[available_rule_cols],
+                                                use_container_width=True
+                                            )
+
+                                            best_uploaded_rule = top_20_uploaded_rules.iloc[0]
+
+                                            st.markdown(f"""
+                                            <div class="insight-box">
+                                                <b>Top uploaded-dataset rule:</b> {best_uploaded_rule["rule_desc"]}<br>
+                                                <b>Support:</b> {best_uploaded_rule["support"]:.4f}<br>
+                                                <b>Confidence:</b> {best_uploaded_rule["confidence"]:.2%}<br>
+                                                <b>Lift:</b> {best_uploaded_rule["lift"]:.2f}<br>
+                                                <b>Interpretation:</b> This rule is a candidate cross-selling pattern from the uploaded dataset, not causal proof.
+                                            </div>
+                                            """, unsafe_allow_html=True)
+
+                                        st.markdown("### All Generated Rules Preview")
+                                        all_rules_preview = (
+                                            uploaded_rules
+                                            .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
+                                            .head(50)
+                                        )
+
+                                        st.dataframe(
+                                            all_rules_preview[available_rule_cols],
+                                            use_container_width=True
+                                        )
+
+                                        st.markdown(f"""
+                                        <div class="insight-box">
+                                            <b>Status:</b> Association rule generation completed.<br>
+                                            <b>Total generated rules:</b> {len(uploaded_rules):,}<br>
+                                            <b>Total strong rules:</b> {len(uploaded_strong_rules):,}<br>
+                                            <b>Next stage:</b> add visual charts and downloadable CSV outputs.
+                                        </div>
+                                        """, unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Could not read uploaded CSV file: {e}")
