@@ -1123,7 +1123,11 @@ with tabs[7]:
                         apriori_itemsets_uploaded = mining_results["apriori_itemsets"]
                         fpgrowth_itemsets_uploaded = mining_results["fpgrowth_itemsets"]
                         runtime_summary_uploaded = mining_results["runtime_summary"]
-
+                        st.session_state["apriori_itemsets_uploaded"] = apriori_itemsets_uploaded
+                        st.session_state["fpgrowth_itemsets_uploaded"] = fpgrowth_itemsets_uploaded
+                        st.session_state["runtime_summary_uploaded"] = runtime_summary_uploaded
+                        st.session_state["validated_uploaded_df"] = validated_df
+                        st.session_state["uploaded_min_support"] = uploaded_min_support
                         st.success("Apriori and FP-Growth completed successfully.")
 
                         st.subheader("Algorithm Runtime Summary")
@@ -1241,13 +1245,18 @@ with tabs[7]:
                                     step=0.50,
                                     format="%.2f"
                                 )
-
                             generate_rules_button = st.button("Generate Association Rules from Uploaded Dataset")
 
                             if generate_rules_button:
-                                if fpgrowth_itemsets_uploaded.empty:
+                                if "fpgrowth_itemsets_uploaded" not in st.session_state:
+                                    st.error("Run Apriori and FP-Growth first before generating association rules.")
+                                elif st.session_state["fpgrowth_itemsets_uploaded"].empty:
                                     st.error("FP-Growth frequent itemsets are empty. Cannot generate association rules.")
                                 else:
+                                    fpgrowth_itemsets_uploaded = st.session_state["fpgrowth_itemsets_uploaded"]
+                                    validated_df = st.session_state["validated_uploaded_df"]
+                                    uploaded_min_support = st.session_state["uploaded_min_support"]
+
                                     uploaded_rules, uploaded_strong_rules = generate_uploaded_association_rules(
                                         frequent_itemsets=fpgrowth_itemsets_uploaded,
                                         uploaded_df=validated_df,
@@ -1256,6 +1265,8 @@ with tabs[7]:
                                         strong_min_confidence=uploaded_strong_confidence,
                                         strong_min_lift=uploaded_strong_lift
                                     )
+
+                            
 
                                     if uploaded_rules.empty:
                                         st.warning("No association rules were generated. Try lowering min confidence or min support.")
