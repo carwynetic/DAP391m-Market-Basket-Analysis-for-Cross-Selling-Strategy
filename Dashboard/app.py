@@ -241,6 +241,109 @@ product_map = build_product_lookup(df_lookup, df_items)
 
 df_rules = enrich_rules_with_description(df_rules, product_map)
 df_top20 = enrich_rules_with_description(df_top20, product_map)
+
+# ==========================================
+# UPLOADED DATASET VALIDATION
+# ==========================================
+
+REQUIRED_UPLOAD_COLUMNS = [
+    "InvoiceNo",
+    "StockCode",
+    "Description",
+    "Quantity",
+    "InvoiceDate",
+    "UnitPrice",
+    "CustomerID",
+    "Country"
+]
+
+def validate_uploaded_mba_dataset(df):
+    errors = []
+    warnings = []
+
+    # Clean column names
+    df = df.copy()
+    df.columns = (
+        df.columns
+        .astype(str)
+        .str.replace("\ufeff", "", regex=False)
+        .str.strip()
+    )
+
+    # Check required columns
+    missing_cols = [col for col in REQUIRED_UPLOAD_COLUMNS if col not in df.columns]
+    if missing_cols:
+        errors.append(f"Missing required columns: {missing_cols}")
+
+    if errors:
+        return df, errors, warnings
+
+    # Basic invalid row checks
+    if df["InvoiceNo"].isna().sum() > 0:
+        errors.append("InvoiceNo contains missing values.")
+
+    if df["StockCode"].isna().sum() > 0:
+        errors.append("StockCode contains missing values.")
+
+    if df["Description"].isna().sum() > 0:
+        errors.append("Description contains missing values.")
+
+    # Numeric validation
+    df["Quantity"] = pd.to_numeric(df["Quantity"], errors="coerce")
+    df["UnitPrice"] = pd.to_numeric(df["UnitPrice"], errors="coerce")
+
+    if df["Quantity"].isna().sum() > 0:
+        errors.append("Quantity contains non-numeric values.")
+
+    if df["UnitPrice"].isna().sum() > 0:
+        errors.append("UnitPrice contains non-numeric values.")
+
+    if (df["Quantity"] <= 0).sum() > 0:
+        errors.append("Quantity contains values <= 0.")
+
+    if (df["UnitPrice"] <= 0).sum() > 0:
+        errors.append("UnitPrice contains values <= 0.")
+
+    # Cancelled invoice check
+    cancelled_count = df["InvoiceNo"].astype(str).str.startswith("C").sum()
+    if cancelled_count > 0:
+        errors.append(f"Dataset contains {cancelled_count} cancelled invoices starting with 'C'.")
+
+    # Duplicate rows
+    duplicate_count = df.duplicated().sum()
+    if duplicate_count > 0:
+        warnings.append(f"Dataset contains {duplicate_count} duplicated rows.")
+
+    return df, errors, warnings
+
+
+def summarize_uploaded_mba_dataset(df):
+    total_rows = len(df)
+    total_baskets = df["InvoiceNo"].nunique()
+    total_products = df["StockCode"].nunique()
+    total_countries = df["Country"].nunique()
+
+    basket_sizes = (
+        df.groupby("InvoiceNo")["StockCode"]
+        .nunique()
+        .reset_index(name="BasketSize")
+    )
+
+    avg_basket_size = basket_sizes["BasketSize"].mean()
+    min_basket_size = basket_sizes["BasketSize"].min()
+    max_basket_size = basket_sizes["BasketSize"].max()
+
+    return {
+        "total_rows": total_rows,
+        "total_baskets": total_baskets,
+        "total_products": total_products,
+        "total_countries": total_countries,
+        "avg_basket_size": avg_basket_size,
+        "min_basket_size": min_basket_size,
+        "max_basket_size": max_basket_size
+    }
+
+
 # ==========================================
 # 3. SIDEBAR
 # ==========================================
@@ -262,9 +365,9 @@ tabs = st.tabs([
     "⚙️ 4. Algorithm Results", 
     "🧮 5. Add-to-Cart Simulator", 
     "📈 6. Model Results", 
-    "💡 7. Final Conclusion"
+    "💡 7. Final Conclusion",
+    "🧪 8. Run MBA on New Dataset"
 ])
-
 # ------------------------------------------
 # TAB 1: EXECUTIVE OVERVIEW
 # ------------------------------------------
@@ -675,3 +778,81 @@ with tabs[6]:
         >
         > **Note:** This recommendation is based on association rule mining. It should be tested through campaign experiments before making a causal claim.
         """)
+# ------------------------------------------
+# TAB 8: RUN MBA ON NEW DATASET - UPLOAD + VALIDATION ONLY
+# ------------------------------------------
+with tabs[7]:
+    st.header("Run MBA on New Dataset")
+    st.markdown(
+        "Upload a clean transaction-level CSV dataset. "
+        "This stage only validates the uploaded file before running Apriori / FP-Growth."
+    )
+
+    uploaded_file = st.file_uploader(
+        "Upload generated MBA test dataset",
+        type=["csv"],
+        help="Required columns: InvoiceNo, StockCode, Description, Quantity, InvoiceDate, UnitPrice, CustomerID, Country"
+    )
+
+    if uploaded_file is None:
+        st.info("Upload one generated CSV file to start validation.")
+    else:
+        try:
+            uploaded_df = pd.read_csv(uploaded_file)
+
+            uploaded_df.columns = (
+                uploaded_df.columns
+                .astype(str)
+                .str.replace("\ufeff", "", regex=False)
+                .str.strip()
+            )
+
+            st.subheader("Uploaded Dataset Preview")
+            st.dataframe(uploaded_df.head(20), use_container_width=True)
+
+            validated_df, validation_errors, validation_warnings = validate_uploaded_mba_dataset(uploaded_df)
+
+            st.subheader("Validation Result")
+
+            if validation_errors:
+                st.error("Uploaded dataset is not valid for Apriori / FP-Growth.")
+                for err in validation_errors:
+                    st.markdown(f"- {err}")
+            else:
+                st.success("Uploaded dataset is valid for Apriori / FP-Growth.")
+
+                summary = summarize_uploaded_mba_dataset(validated_df)
+
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Rows", f"{summary['total_rows']:,}")
+                c2.metric("Baskets", f"{summary['total_baskets']:,}")
+                c3.metric("Unique Products", f"{summary['total_products']:,}")
+                c4.metric("Countries", f"{summary['total_countries']:,}")
+
+                c5, c6, c7 = st.columns(3)
+                c5.metric("Avg Basket Size", f"{summary['avg_basket_size']:.2f}")
+                c6.metric("Min Basket Size", f"{summary['min_basket_size']:.0f}")
+                c7.metric("Max Basket Size", f"{summary['max_basket_size']:.0f}")
+
+                if validation_warnings:
+                    st.warning("Dataset is valid but has warnings:")
+                    for warn in validation_warnings:
+                        st.markdown(f"- {warn}")
+
+                st.subheader("Column Check")
+                column_check = pd.DataFrame({
+                    "Required Column": REQUIRED_UPLOAD_COLUMNS,
+                    "Exists": [col in validated_df.columns for col in REQUIRED_UPLOAD_COLUMNS]
+                })
+                st.dataframe(column_check, use_container_width=True)
+
+                st.subheader("Dataset Info")
+                st.markdown(f"""
+                <div class="insight-box">
+                    <b>Status:</b> This uploaded file passed schema and basic data validation.<br>
+                    <b>Next stage:</b> build baskets from InvoiceNo and StockCode, then encode transactions for Apriori / FP-Growth.
+                </div>
+                """, unsafe_allow_html=True)
+
+        except Exception as e:
+            st.error(f"Could not read uploaded CSV file: {e}")
