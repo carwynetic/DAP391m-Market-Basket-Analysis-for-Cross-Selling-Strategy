@@ -1234,6 +1234,244 @@ def run_country_mba_pipeline_cached(
     return output
 
 # ==========================================
+# COUNTRY-SPECIFIC REGRESSION MODEL HELPERS
+# ==========================================
+
+COUNTRY_REGRESSION_MIN_ROWS = 100
+COUNTRY_REGRESSION_MIN_APPLIED = 5
+
+
+def normalize_rule_itemset(value):
+    if isinstance(value, (set, frozenset, list, tuple)):
+        return set([str(x).strip() for x in value if str(x).strip()])
+
+    if pd.isna(value):
+        return set()
+
+    s = str(value).strip()
+
+    try:
+        parsed = ast.literal_eval(s)
+        if isinstance(parsed, (set, frozenset, list, tuple)):
+            return set([str(x).strip() for x in parsed if str(x).strip()])
+    except Exception:
+        pass
+
+    s = (
+        s.replace("frozenset", "")
+        .replace("set", "")
+        .replace("(", "")
+        .replace(")", "")
+        .replace("{", "")
+        .replace("}", "")
+        .replace("[", "")
+        .replace("]", "")
+        .replace("'", "")
+        .replace('"', "")
+    )
+
+    return set([x.strip() for x in s.split(",") if x.strip()])
+
+
+def get_rule_items_from_row(rule_row):
+    antecedents = normalize_rule_itemset(rule_row.get("antecedents", set()))
+    consequents = normalize_rule_itemset(rule_row.get("consequents", set()))
+    all_items = antecedents.union(consequents)
+
+    rule_desc = rule_row.get("rule_desc", "")
+    if not rule_desc:
+        rule_desc = itemset_to_text(antecedents) + " → " + itemset_to_text(consequents)
+
+    return antecedents, consequents, all_items, rule_desc
+
+
+def create_country_rule_applied_dataset(df_country, rule_row):
+    df_model = df_country.copy()
+
+    if "ItemsParsed" not in df_model.columns:
+        df_model["ItemsParsed"] = df_model["Items"].apply(parse_country_basket_items)
+
+    antecedents, consequents, all_rule_items, rule_desc = get_rule_items_from_row(rule_row)
+
+    df_model["rule_applied"] = df_model["ItemsParsed"].apply(
+        lambda items: int(all_rule_items.issubset(set([str(x).strip() for x in items])))
+    )
+
+    if "AvgUnitPrice" not in df_model.columns:
+        if "ProductRevenue" in df_model.columns and "TotalQuantity" in df_model.columns:
+            df_model["AvgUnitPrice"] = np.where(
+                df_model["TotalQuantity"] > 0,
+                df_model["ProductRevenue"] / df_model["TotalQuantity"],
+                np.nan
+            )
+        else:
+            df_model["AvgUnitPrice"] = np.nan
+
+    needed_cols = [
+        "InvoiceNo",
+        "BasketSize",
+        "ProductRevenue",
+        "TotalQuantity",
+        "AvgUnitPrice",
+        "Country",
+        "rule_applied"
+    ]
+
+    existing_cols = [col for col in needed_cols if col in df_model.columns]
+    df_model = df_model[existing_cols].copy()
+
+    numeric_cols = ["BasketSize", "ProductRevenue", "TotalQuantity", "AvgUnitPrice"]
+
+    for col in numeric_cols:
+        if col in df_model.columns:
+            df_model[col] = pd.to_numeric(df_model[col], errors="coerce")
+
+    df_model = df_model.dropna(subset=["BasketSize", "ProductRevenue", "TotalQuantity", "AvgUnitPrice", "rule_applied"])
+    df_model = df_model[df_model["ProductRevenue"] > 0].copy()
+
+    for col in numeric_cols:
+        upper_threshold = df_model[col].quantile(0.995)
+        df_model = df_model[df_model[col] <= upper_threshold].copy()
+
+    return df_model, {
+        "antecedents": antecedents,
+        "consequents": consequents,
+        "all_rule_items": all_rule_items,
+        "rule_desc": rule_desc,
+        "applied_count": int(df_model["rule_applied"].sum()) if not df_model.empty else 0,
+        "not_applied_count": int((df_model["rule_applied"] == 0).sum()) if not df_model.empty else 0
+    }
+
+
+def fit_country_regression_model(df_model, model_name, formula, is_log_model=False):
+    model = smf.ols(formula=formula, data=df_model).fit()
+
+    coef = model.params.get("rule_applied", np.nan)
+    p_value = model.pvalues.get("rule_applied", np.nan)
+    t_value = model.tvalues.get("rule_applied", np.nan)
+    std_error = model.bse.get("rule_applied", np.nan)
+
+    try:
+        ci_lower, ci_upper = model.conf_int().loc["rule_applied"].tolist()
+    except Exception:
+        ci_lower, ci_upper = np.nan, np.nan
+
+    approx_effect = None
+    if is_log_model and pd.notna(coef):
+        approx_effect = (np.exp(coef) - 1) * 100
+
+    if pd.notna(p_value) and p_value < 0.05 and coef > 0:
+        interpretation = "Positive and statistically significant"
+    elif pd.notna(p_value) and p_value < 0.05 and coef < 0:
+        interpretation = "Negative and statistically significant"
+    else:
+        interpretation = "Not statistically significant"
+
+    return {
+        "Model": model_name,
+        "Formula": formula,
+        "N_Observations": int(model.nobs),
+        "Rule_Coefficient": round(coef, 4) if pd.notna(coef) else np.nan,
+        "Rule_Std_Error": round(std_error, 4) if pd.notna(std_error) else np.nan,
+        "Rule_T_Value": round(t_value, 4) if pd.notna(t_value) else np.nan,
+        "P_Value": round(p_value, 4) if pd.notna(p_value) else np.nan,
+        "CI_Lower": round(ci_lower, 4) if pd.notna(ci_lower) else np.nan,
+        "CI_Upper": round(ci_upper, 4) if pd.notna(ci_upper) else np.nan,
+        "R_Squared": round(model.rsquared, 4),
+        "Adj_R_Squared": round(model.rsquared_adj, 4),
+        "Approx_Percentage_Effect_Log_Models": round(approx_effect, 4) if approx_effect is not None else None,
+        "Interpretation": interpretation
+    }
+
+
+def run_country_regression_pipeline(df_country, top_rule_row, selected_country):
+    output = {
+        "selected_country": selected_country,
+        "status": "not_started",
+        "message": "",
+        "rule_metadata": {},
+        "model_dataset": pd.DataFrame(),
+        "results": pd.DataFrame()
+    }
+
+    if df_country.empty:
+        output["status"] = "empty_country_dataset"
+        output["message"] = "No basket-level data available for this country."
+        return output
+
+    df_model, rule_metadata = create_country_rule_applied_dataset(df_country, top_rule_row)
+
+    output["rule_metadata"] = rule_metadata
+    output["model_dataset"] = df_model
+
+    if len(df_model) < COUNTRY_REGRESSION_MIN_ROWS:
+        output["status"] = "not_enough_rows"
+        output["message"] = (
+            f"Only {len(df_model):,} usable rows after cleaning. "
+            f"Minimum required for country-specific regression is {COUNTRY_REGRESSION_MIN_ROWS:,}."
+        )
+        return output
+
+    if rule_metadata["applied_count"] < COUNTRY_REGRESSION_MIN_APPLIED:
+        output["status"] = "not_enough_rule_applied"
+        output["message"] = (
+            f"Only {rule_metadata['applied_count']:,} baskets contain the selected rule. "
+            f"Minimum required is {COUNTRY_REGRESSION_MIN_APPLIED:,}."
+        )
+        return output
+
+    df_model = df_model.copy()
+    df_model["log_ProductRevenue"] = np.log(df_model["ProductRevenue"])
+
+    formulas = [
+        ("Model 1A: Baseline Revenue", "ProductRevenue ~ rule_applied", False),
+        ("Model 2A: + BasketSize", "ProductRevenue ~ rule_applied + BasketSize", False),
+        ("Model 3A: + AvgUnitPrice", "ProductRevenue ~ rule_applied + BasketSize + AvgUnitPrice", False),
+        ("Model 4A: + TotalQuantity", "ProductRevenue ~ rule_applied + BasketSize + AvgUnitPrice + TotalQuantity", False),
+        ("Model 1B: Baseline log Revenue", "log_ProductRevenue ~ rule_applied", True),
+        ("Model 2B: log Revenue + BasketSize", "log_ProductRevenue ~ rule_applied + BasketSize", True),
+        ("Model 3B: log Revenue + AvgUnitPrice", "log_ProductRevenue ~ rule_applied + BasketSize + AvgUnitPrice", True),
+        ("Model 4B: log Revenue + TotalQuantity", "log_ProductRevenue ~ rule_applied + BasketSize + AvgUnitPrice + TotalQuantity", True),
+    ]
+
+    records = []
+
+    for model_name, formula, is_log_model in formulas:
+        try:
+            records.append(
+                fit_country_regression_model(
+                    df_model=df_model,
+                    model_name=model_name,
+                    formula=formula,
+                    is_log_model=is_log_model
+                )
+            )
+        except Exception as e:
+            records.append({
+                "Model": model_name,
+                "Formula": formula,
+                "N_Observations": len(df_model),
+                "Rule_Coefficient": np.nan,
+                "Rule_Std_Error": np.nan,
+                "Rule_T_Value": np.nan,
+                "P_Value": np.nan,
+                "CI_Lower": np.nan,
+                "CI_Upper": np.nan,
+                "R_Squared": np.nan,
+                "Adj_R_Squared": np.nan,
+                "Approx_Percentage_Effect_Log_Models": None,
+                "Interpretation": f"Model failed: {e}"
+            })
+
+    results_df = pd.DataFrame(records)
+
+    output["status"] = "completed"
+    output["message"] = "Country-specific regression models completed successfully."
+    output["results"] = results_df
+    output["model_dataset"] = df_model
+
+    return output
+# ==========================================
 # 3. SIDEBAR
 # ==========================================
 st.sidebar.title("🛒 Parameters")
@@ -1412,6 +1650,47 @@ active_top20 = active_outputs["top20"]
 active_alg_runtime = active_outputs["runtime"]
 active_apr_freq = active_outputs["apriori_itemsets"]
 active_fp_freq = active_outputs["fpgrowth_itemsets"]
+
+
+# ==========================================
+# ACTIVE MODEL RESULTS OUTPUT SELECTOR
+# ==========================================
+
+global_model_results = pd.DataFrame()
+
+for candidate_name in [
+    "df_causal",
+    "df_model_results",
+    "df_final_causal",
+    "df_final_causal_impact",
+    "final_causal_impact_summary"
+]:
+    if candidate_name in globals():
+        candidate_df = globals()[candidate_name]
+        if isinstance(candidate_df, pd.DataFrame) and not candidate_df.empty:
+            global_model_results = candidate_df.copy()
+            break
+
+country_model_outputs = None
+
+if selected_country != "All":
+    if active_outputs["status"] == "completed" and not active_top20.empty:
+        country_model_outputs = run_country_regression_pipeline(
+            df_country=df_baskets_country,
+            top_rule_row=active_top20.iloc[0],
+            selected_country=selected_country
+        )
+    else:
+        country_model_outputs = {
+            "selected_country": selected_country,
+            "status": active_outputs["status"],
+            "message": active_outputs["message"],
+            "rule_metadata": {},
+            "model_dataset": pd.DataFrame(),
+            "results": pd.DataFrame()
+        }
+
+st.session_state["country_model_outputs"] = country_model_outputs
 
 # ==========================================
 # 4. TABS SETUP
@@ -1921,105 +2200,195 @@ with tabs[4]:
                 </h3>
             </div>
             """, unsafe_allow_html=True)
+
 # ------------------------------------------
-# TAB 6: MODEL RESULTS / REGRESSION IMPACT
+# TAB 6: MODEL RESULTS
 # ------------------------------------------
 with tabs[5]:
     st.header("Regression-Based Robustness Check")
 
-    if df_model.empty:
-        st.warning("Regression summary file not found. Model result tab is disabled.")
-    else:
-        df_model = df_model.copy()
+    st.caption(
+        f"Current selection: {selected_country} | "
+        f"{'Global precomputed model results' if selected_country == 'All' else 'Country-specific regression'}"
+    )
 
-        # Clean column names: remove whitespace and BOM
-        df_model.columns = (
-            df_model.columns
-            .astype(str)
-            .str.replace("\ufeff", "", regex=False)
-            .str.strip()
-        )
+    if selected_country == "All":
+        model_results_to_show = global_model_results.copy()
 
-        st.dataframe(df_model, use_container_width=True)
-
-        required_model_col = "Model"
-
-        if required_model_col not in df_model.columns:
-            st.error(
-                "Column 'Model' not found in final_causal_impact_summary.csv. "
-                f"Current columns: {list(df_model.columns)}"
-            )
-            st.stop()
-
-        pval_col = [c for c in df_model.columns if "p" in c.lower() and "val" in c.lower()]
-        coef_col = [c for c in df_model.columns if "coef" in c.lower()]
-        r2_col = [c for c in df_model.columns if "r" in c.lower() and "sq" in c.lower()]
-
-        c1, c2 = st.columns(2)
-
-        if coef_col:
-            fig_c = px.bar(
-                df_model,
-                x="Model",
-                y=coef_col[0],
-                title="Rule Coefficient by Model",
-                color_discrete_sequence=["#f4a460"]
-            )
-            fig_c.update_layout(
-                template="plotly_dark",
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)"
-            )
-            c1.plotly_chart(fig_c, use_container_width=True)
-
-        if r2_col:
-            fig_r = px.bar(
-                df_model,
-                x="Model",
-                y=r2_col[0],
-                title="R-Squared by Model",
-                color_discrete_sequence=["#1f77b4"]
-            )
-            fig_r.update_layout(
-                template="plotly_dark",
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)"
-            )
-            c2.plotly_chart(fig_r, use_container_width=True)
-
-        if not pval_col:
-            st.info("No p-value column found. Statistical conclusion is not displayed.")
+        if model_results_to_show.empty:
+            st.warning("Global regression result file is not available.")
         else:
-            p_col = pval_col[0]
+            st.dataframe(model_results_to_show, use_container_width=True)
 
-            final_aov_model = df_model[
-                df_model["Model"].astype(str).str.contains("Model 5A", case=False, na=False)
+            c1, c2 = st.columns(2)
+
+            with c1:
+                if {"Model", "Rule_Coefficient"}.issubset(model_results_to_show.columns):
+                    fig_coef = px.bar(
+                        model_results_to_show,
+                        x="Model",
+                        y="Rule_Coefficient",
+                        title="Rule Coefficient by Model",
+                        color="Interpretation" if "Interpretation" in model_results_to_show.columns else None
+                    )
+
+                    fig_coef.update_layout(
+                        template="plotly_dark",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)"
+                    )
+
+                    st.plotly_chart(fig_coef, use_container_width=True)
+
+            with c2:
+                if {"Model", "R_Squared"}.issubset(model_results_to_show.columns):
+                    fig_r2 = px.bar(
+                        model_results_to_show,
+                        x="Model",
+                        y="R_Squared",
+                        title="R-Squared by Model"
+                    )
+
+                    fig_r2.update_layout(
+                        template="plotly_dark",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)"
+                    )
+
+                    st.plotly_chart(fig_r2, use_container_width=True)
+
+            final_candidates = model_results_to_show[
+                model_results_to_show["Model"].astype(str).str.contains("Model 5", case=False, na=False)
             ]
 
-            final_log_model = df_model[
-                df_model["Model"].astype(str).str.contains("Model 5B", case=False, na=False)
+            if final_candidates.empty:
+                final_candidates = model_results_to_show.tail(1)
+
+            final_row = final_candidates.iloc[-1]
+
+            st.markdown(f"""
+            <div class="insight-box">
+                <b>Conclusion for All Countries:</b><br>
+                Final model: <b>{final_row.get("Model", "N/A")}</b><br>
+                Rule coefficient: <b>{final_row.get("Rule_Coefficient", np.nan)}</b><br>
+                p-value: <b>{final_row.get("P_Value", np.nan)}</b><br>
+                R-squared: <b>{final_row.get("R_Squared", np.nan)}</b><br><br>
+                This is an observational robustness check, not causal proof.
+            </div>
+            """, unsafe_allow_html=True)
+
+    else:
+        country_model_outputs = st.session_state.get("country_model_outputs")
+
+        if country_model_outputs is None:
+            st.warning("Country-specific regression output is not available.")
+        elif country_model_outputs["status"] != "completed":
+            st.warning(country_model_outputs["message"])
+        else:
+            country_results = country_model_outputs["results"].copy()
+            country_model_df = country_model_outputs["model_dataset"].copy()
+            rule_metadata = country_model_outputs["rule_metadata"]
+
+            st.success(country_model_outputs["message"])
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Regression Rows", f"{len(country_model_df):,}")
+            m2.metric("Rule Applied Baskets", f"{rule_metadata['applied_count']:,}")
+            m3.metric("Rule Not Applied Baskets", f"{rule_metadata['not_applied_count']:,}")
+            m4.metric(
+                "Applied Rate",
+                f"{rule_metadata['applied_count'] / len(country_model_df):.2%}"
+                if len(country_model_df) > 0 else "0.00%"
+            )
+
+            st.markdown(f"""
+            <div class="insight-box">
+                <b>Selected country:</b> {selected_country}<br>
+                <b>Selected rule for regression:</b> {rule_metadata["rule_desc"]}<br>
+                <b>Note:</b> Country-specific regression does not include Country as a control because the selected dataset contains only one country.
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.subheader("Country-Specific Regression Results")
+            st.dataframe(country_results, use_container_width=True)
+
+            c1, c2 = st.columns(2)
+
+            with c1:
+                fig_coef = px.bar(
+                    country_results,
+                    x="Model",
+                    y="Rule_Coefficient",
+                    title=f"Rule Coefficient by Model - {selected_country}",
+                    color="Interpretation"
+                )
+
+                fig_coef.update_layout(
+                    template="plotly_dark",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)"
+                )
+
+                st.plotly_chart(fig_coef, use_container_width=True)
+
+            with c2:
+                fig_r2 = px.bar(
+                    country_results,
+                    x="Model",
+                    y="R_Squared",
+                    title=f"R-Squared by Model - {selected_country}"
+                )
+
+                fig_r2.update_layout(
+                    template="plotly_dark",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)"
+                )
+
+                st.plotly_chart(fig_r2, use_container_width=True)
+
+            final_controlled = country_results[
+                country_results["Model"].astype(str).str.contains("Model 4A", case=False, na=False)
             ]
 
-            final_aov_p = final_aov_model[p_col].iloc[0] if not final_aov_model.empty else None
-            final_log_p = final_log_model[p_col].iloc[0] if not final_log_model.empty else None
+            if final_controlled.empty:
+                final_controlled = country_results.tail(1)
 
-            if final_aov_p is None or final_log_p is None:
-                st.info("Model 5A or Model 5B was not found. Final controlled-model conclusion is not displayed.")
-            elif final_aov_p >= 0.05 and final_log_p >= 0.05:
-                st.markdown("""
-                <div class='insight-box'>
-                    <b>Conclusion:</b> Baseline models show a positive association, but after controlling for 
-                    BasketSize, AvgUnitPrice, TotalQuantity, and Country, the selected rule is 
-                    <b>not statistically significant</b>. Therefore, there is no strong evidence of causal impact after controls.
-                </div>
-                """, unsafe_allow_html=True)
+            final_row = final_controlled.iloc[0]
+
+            coef = final_row["Rule_Coefficient"]
+            p_value = final_row["P_Value"]
+            r_squared = final_row["R_Squared"]
+
+            if pd.notna(p_value) and p_value < 0.05:
+                conclusion_text = (
+                    f"For {selected_country}, the selected rule remains statistically significant "
+                    f"after controlling for BasketSize, AvgUnitPrice, and TotalQuantity."
+                )
             else:
-                st.markdown("""
-                <div class='insight-box'>
-                    <b>Conclusion:</b> The final controlled model shows statistical significance. 
-                    However, since the data is observational, this should be interpreted as association rather than strict causality.
-                </div>
-                """, unsafe_allow_html=True)
+                conclusion_text = (
+                    f"For {selected_country}, the selected rule is not statistically significant "
+                    f"after controlling for BasketSize, AvgUnitPrice, and TotalQuantity."
+                )
+
+            st.markdown(f"""
+            <div class="insight-box">
+                <b>Country-Specific Regression Conclusion:</b><br>
+                Final controlled model: <b>{final_row["Model"]}</b><br>
+                Rule coefficient: <b>{coef}</b><br>
+                p-value: <b>{p_value}</b><br>
+                R-squared: <b>{r_squared}</b><br><br>
+                {conclusion_text}<br><br>
+                <b>Important note:</b> This is an observational robustness check, not causal proof.
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.download_button(
+                label=f"Download {selected_country} Regression Results CSV",
+                data=convert_df_to_csv_bytes(country_results),
+                file_name=f"{selected_country.lower().replace(' ', '_')}_regression_results.csv",
+                mime="text/csv"
+            )
 # ------------------------------------------
 # TAB 7: FINAL BUSINESS CONCLUSION
 # ------------------------------------------
