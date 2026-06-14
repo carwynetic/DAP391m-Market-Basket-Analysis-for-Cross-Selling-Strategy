@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import html
 try:
     from streamlit_float import float_init, float_parent
     FLOAT_CHATBOX_AVAILABLE = True
@@ -2133,6 +2134,305 @@ def answer_project_assistant(user_question, context):
     # Default
     return assistant_capability_summary()
 
+
+def _insight_escape(value):
+    return html.escape(str(value if value is not None else "N/A"))
+
+
+def _insight_num(value, decimals=2):
+    try:
+        if value is None or pd.isna(value):
+            return "N/A"
+        return f"{float(value):,.{decimals}f}"
+    except Exception:
+        return "N/A"
+
+
+def _insight_int(value):
+    try:
+        if value is None or pd.isna(value):
+            return "N/A"
+        return f"{int(float(value)):,}"
+    except Exception:
+        return "N/A"
+
+
+def _insight_pct(value):
+    try:
+        if value is None or pd.isna(value):
+            return "N/A"
+        value = float(value)
+        if value <= 1:
+            return f"{value:.2%}"
+        return f"{value:.2f}%"
+    except Exception:
+        return "N/A"
+
+
+def _get_best_rule_from_df(rules_df):
+    if not isinstance(rules_df, pd.DataFrame) or rules_df.empty:
+        return None
+
+    sort_cols = [col for col in ["lift", "confidence", "support"] if col in rules_df.columns]
+    if not sort_cols:
+        return rules_df.iloc[0]
+
+    return rules_df.sort_values(sort_cols, ascending=False).iloc[0]
+
+
+def _get_rule_text(row):
+    if row is None:
+        return "N/A"
+
+    for col in ["rule_desc", "rule", "rule_display"]:
+        if col in row.index:
+            val = row.get(col)
+            if pd.notna(val) and str(val).strip():
+                return str(val)
+
+    return "N/A"
+
+
+def _build_tab_insight_context(
+    selected_country,
+    country_filter_audit,
+    active_outputs,
+    active_rules,
+    active_top20,
+    active_alg_runtime,
+    country_model_outputs,
+    global_model_results
+):
+    audit = country_filter_audit if isinstance(country_filter_audit, dict) else {}
+    outputs = active_outputs if isinstance(active_outputs, dict) else {}
+
+    best_rule = _get_best_rule_from_df(active_top20)
+    if best_rule is None:
+        best_rule = _get_best_rule_from_df(active_rules)
+
+    top_rule = _get_rule_text(best_rule)
+    top_support = best_rule.get("support") if best_rule is not None and "support" in best_rule.index else None
+    top_confidence = best_rule.get("confidence") if best_rule is not None and "confidence" in best_rule.index else None
+    top_lift = best_rule.get("lift") if best_rule is not None and "lift" in best_rule.index else None
+
+    apriori_runtime = None
+    fpgrowth_runtime = None
+    speedup = None
+
+    try:
+        if isinstance(active_alg_runtime, pd.DataFrame) and not active_alg_runtime.empty:
+            apriori_row = active_alg_runtime[
+                active_alg_runtime["Algorithm"].astype(str).str.contains("Apriori", case=False, na=False)
+            ]
+            fpgrowth_row = active_alg_runtime[
+                active_alg_runtime["Algorithm"].astype(str).str.contains("FP", case=False, na=False)
+            ]
+
+            if not apriori_row.empty:
+                apriori_runtime = float(apriori_row.iloc[0]["Runtime_Seconds"])
+            if not fpgrowth_row.empty:
+                fpgrowth_runtime = float(fpgrowth_row.iloc[0]["Runtime_Seconds"])
+            if apriori_runtime and fpgrowth_runtime and fpgrowth_runtime > 0:
+                speedup = apriori_runtime / fpgrowth_runtime
+    except Exception:
+        pass
+
+    regression_summary = {
+        "available": False,
+        "model": "N/A",
+        "coef": None,
+        "p_value": None,
+        "r_squared": None,
+        "significant": None,
+    }
+
+    try:
+        if selected_country == "All":
+            reg_df = global_model_results.copy() if isinstance(global_model_results, pd.DataFrame) else pd.DataFrame()
+        else:
+            reg_df = (
+                country_model_outputs.get("results", pd.DataFrame()).copy()
+                if isinstance(country_model_outputs, dict)
+                else pd.DataFrame()
+            )
+
+        if isinstance(reg_df, pd.DataFrame) and not reg_df.empty:
+            final_candidates = reg_df[
+                reg_df["Model"].astype(str).str.contains("Model 5|Model 4A|Model 4B", case=False, na=False)
+            ]
+
+            if final_candidates.empty:
+                final_candidates = reg_df.tail(1)
+
+            final_row = final_candidates.iloc[-1]
+
+            p_col = "P_Value" if "P_Value" in final_row.index else "Rule_P_Value"
+
+            regression_summary = {
+                "available": True,
+                "model": final_row.get("Model", "N/A"),
+                "coef": final_row.get("Rule_Coefficient", None),
+                "p_value": final_row.get(p_col, None),
+                "r_squared": final_row.get("R_Squared", None),
+                "significant": (
+                    pd.notna(final_row.get(p_col, None))
+                    and float(final_row.get(p_col, 1)) < 0.05
+                )
+            }
+    except Exception:
+        pass
+
+    return {
+        "country": selected_country,
+        "mode": outputs.get("mode", "N/A"),
+        "status": outputs.get("status", "N/A"),
+        "message": outputs.get("message", "N/A"),
+        "basket_rows": audit.get("basket_rows", "N/A"),
+        "usable_baskets": audit.get("usable_baskets", "N/A"),
+        "unique_products": audit.get("unique_products", "N/A"),
+        "total_revenue": audit.get("total_revenue", "N/A"),
+        "avg_basket_size": audit.get("avg_basket_size", "N/A"),
+        "generated_rules": len(active_rules) if isinstance(active_rules, pd.DataFrame) else 0,
+        "strong_rules": len(active_top20) if isinstance(active_top20, pd.DataFrame) else 0,
+        "top_rule": top_rule,
+        "top_support": top_support,
+        "top_confidence": top_confidence,
+        "top_lift": top_lift,
+        "apriori_runtime": apriori_runtime,
+        "fpgrowth_runtime": fpgrowth_runtime,
+        "speedup": speedup,
+        "regression": regression_summary,
+    }
+
+
+def build_ai_tab_insight(tab_name, ctx):
+    country = ctx.get("country", "All")
+    status = ctx.get("status", "N/A")
+    message = ctx.get("message", "N/A")
+
+    if status == "not_enough_baskets":
+        return (
+            f"For {country}, country-specific mining was not executed because only "
+            f"{_insight_int(ctx.get('usable_baskets'))} usable baskets were available. "
+            f"The minimum required threshold is 100 baskets. Use the global results only as a general reference, "
+            f"not as a country-specific conclusion."
+        )
+
+    if tab_name == "rules":
+        return (
+            f"For {country}, the current rule mining output contains "
+            f"{_insight_int(ctx.get('generated_rules'))} generated rules and "
+            f"{_insight_int(ctx.get('strong_rules'))} strong displayed rules. "
+            f"The strongest visible rule is '{ctx.get('top_rule', 'N/A')}' with support "
+            f"{_insight_num(ctx.get('top_support'), 4)}, confidence "
+            f"{_insight_pct(ctx.get('top_confidence'))}, and lift "
+            f"{_insight_num(ctx.get('top_lift'), 2)}. "
+            f"This is an association pattern, not causal proof."
+        )
+
+    if tab_name == "bundle":
+        return (
+            f"For {country}, bundle recommendations should prioritize high-lift and high-confidence rules. "
+            f"The current top candidate is '{ctx.get('top_rule', 'N/A')}'. "
+            f"Recommended business actions include checkout recommendation, bundle promotion, "
+            f"frequently-bought-together block, or product placement test. "
+            f"These actions still require real-world validation."
+        )
+
+    if tab_name == "algorithm":
+        speedup = ctx.get("speedup")
+        speedup_text = f"{speedup:.2f}x" if isinstance(speedup, (int, float)) else "N/A"
+
+        return (
+            f"For {country}, Apriori runtime is {_insight_num(ctx.get('apriori_runtime'), 4)} seconds and "
+            f"FP-Growth runtime is {_insight_num(ctx.get('fpgrowth_runtime'), 4)} seconds. "
+            f"FP-Growth speed-up is {speedup_text}. "
+            f"If both algorithms return the same frequent itemsets, the main comparison point is computational efficiency."
+        )
+
+    if tab_name == "simulator":
+        return (
+            f"The simulator converts the selected association rule into a scenario-based revenue estimate. "
+            f"For {country}, the simulation should be interpreted as a planning tool only. "
+            f"It uses rule confidence, target customers, conversion rate, AOV, discount rate, and campaign cost. "
+            f"It does not prove that the recommendation will cause additional revenue."
+        )
+
+    if tab_name == "model":
+        reg = ctx.get("regression", {})
+
+        if not reg.get("available"):
+            return (
+                f"No regression result is currently available for {country}. "
+                f"Status: {status}. Message: {message}"
+            )
+
+        significance_text = (
+            "statistically significant"
+            if reg.get("significant")
+            else "not statistically significant"
+        )
+
+        return (
+            f"For {country}, the final regression model is {reg.get('model', 'N/A')}. "
+            f"The rule coefficient is {_insight_num(reg.get('coef'), 4)}, "
+            f"p-value is {_insight_num(reg.get('p_value'), 4)}, and R-squared is "
+            f"{_insight_num(reg.get('r_squared'), 4)}. "
+            f"The selected rule is {significance_text} in the final controlled model. "
+            f"This is an observational robustness check, not causal proof."
+        )
+
+    if tab_name == "conclusion":
+        reg = ctx.get("regression", {})
+
+        if status == "completed":
+            regression_part = ""
+            if reg.get("available"):
+                regression_part = (
+                    f" Regression result: final coefficient {_insight_num(reg.get('coef'), 4)}, "
+                    f"p-value {_insight_num(reg.get('p_value'), 4)}, "
+                    f"R-squared {_insight_num(reg.get('r_squared'), 4)}."
+                )
+
+            return (
+                f"For {country}, the dashboard finds usable association-rule outputs. "
+                f"The current strongest rule is '{ctx.get('top_rule', 'N/A')}' with lift "
+                f"{_insight_num(ctx.get('top_lift'), 2)}. "
+                f"These rules can support candidate cross-selling and bundle recommendations."
+                f"{regression_part} Final decisions should be validated with real business experiments."
+            )
+
+        return (
+            f"For {country}, the dashboard cannot produce a complete country-specific conclusion. "
+            f"Status: {status}. Message: {message}"
+        )
+
+    return "No AI insight available for this tab."
+
+
+def render_ai_insight_card(title, insight_text):
+    safe_title = _insight_escape(title)
+    safe_text = _insight_escape(insight_text)
+
+    st.markdown(
+        f"""
+        <div class="glass-card" style="
+            border-left: 4px solid #FF4B4B;
+            margin-top: 18px;
+            margin-bottom: 18px;
+        ">
+            <div style="font-size: 1.05rem; font-weight: 800; margin-bottom: 8px;">
+                🤖 {safe_title}
+            </div>
+            <div style="line-height: 1.65; color: #EAEAEA;">
+                {safe_text}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
 def render_floating_project_assistant(
     selected_country,
     country_filter_audit=None,
@@ -2609,6 +2909,17 @@ if selected_country != "All":
 
 st.session_state["country_model_outputs"] = country_model_outputs
 
+tab_insight_context = _build_tab_insight_context(
+    selected_country=selected_country,
+    country_filter_audit=country_filter_audit,
+    active_outputs=active_outputs,
+    active_rules=active_rules,
+    active_top20=active_top20,
+    active_alg_runtime=active_alg_runtime,
+    country_model_outputs=country_model_outputs,
+    global_model_results=global_model_results
+)
+
 # ==========================================
 # 4. TABS SETUP
 # ==========================================
@@ -2709,6 +3020,10 @@ with tabs[1]:
         f"Current output mode: {active_outputs['mode']} | "
         f"Selected country: {selected_country} | "
         f"Status: {active_outputs['status']}"
+    )
+    render_ai_insight_card(
+        "AI Insight for Rules Explorer",
+        build_ai_tab_insight("rules", tab_insight_context)
     )
 
     if active_rules.empty:
@@ -2869,6 +3184,10 @@ with tabs[2]:
         f"Selected country: {selected_country} | "
         f"Status: {active_outputs['status']}"
     )
+    render_ai_insight_card(
+        "AI Insight for Bundle Recommendation",
+        build_ai_tab_insight("bundle", tab_insight_context)
+    )
 
     if active_top20.empty:
         st.warning(active_outputs["message"])
@@ -2920,6 +3239,10 @@ with tabs[3]:
         f"Current output mode: {active_outputs['mode']} | "
         f"Selected country: {selected_country} | "
         f"Status: {active_outputs['status']}"
+    )
+    render_ai_insight_card(
+        "AI Insight for Algorithm Results",
+        build_ai_tab_insight("algorithm", tab_insight_context)
     )
 
     has_algo_outputs = (
@@ -3023,7 +3346,10 @@ with tabs[4]:
         f"Selected country: {selected_country} | "
         f"Status: {active_outputs['status']}"
     )
-
+    render_ai_insight_card(
+        "AI Insight for Algorithm Results",
+        build_ai_tab_insight("algorithm", tab_insight_context)
+    )
     if active_rules.empty:
         st.warning(active_outputs["message"])
     else:
@@ -3128,7 +3454,10 @@ with tabs[5]:
         f"Current selection: {selected_country} | "
         f"{'Global precomputed model results' if selected_country == 'All' else 'Country-specific regression'}"
     )
-
+    render_ai_insight_card(
+        "AI Insight for Algorithm Results",
+        build_ai_tab_insight("algorithm", tab_insight_context)
+    )
     if selected_country == "All":
         model_results_to_show = global_model_results.copy()
 
@@ -3311,7 +3640,10 @@ with tabs[5]:
 # ------------------------------------------
 with tabs[6]:
     st.header("Final Conclusion")
-
+    render_ai_insight_card(
+        "AI Insight for Algorithm Results",
+        build_ai_tab_insight("algorithm", tab_insight_context)
+    )
     import ast
 
     def _as_df(obj):
