@@ -1659,6 +1659,7 @@ active_fp_freq = active_outputs["fpgrowth_itemsets"]
 global_model_results = pd.DataFrame()
 
 for candidate_name in [
+    "df_model",
     "df_causal",
     "df_model_results",
     "df_final_causal",
