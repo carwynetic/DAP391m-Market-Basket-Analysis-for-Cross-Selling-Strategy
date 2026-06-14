@@ -1814,7 +1814,7 @@ def render_floating_project_assistant(
                 css=f"""
                 position: fixed;
                 bottom: 18px;
-                left: 18px;
+                right: 18px;
                 width: {width};
                 height: {height};
                 z-index: 999999;
