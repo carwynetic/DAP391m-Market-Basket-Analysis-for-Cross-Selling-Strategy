@@ -2396,6 +2396,204 @@ with tabs[5]:
 with tabs[6]:
     st.header("Final Conclusion")
 
+    import ast
+
+    def _as_df(obj):
+        return obj if isinstance(obj, pd.DataFrame) else pd.DataFrame()
+
+    def _pick_dict(d, keys, default=None):
+        if not isinstance(d, dict):
+            return default
+        for key in keys:
+            if key in d:
+                val = d.get(key)
+                if val is not None and val != "":
+                    return val
+        return default
+
+    def _row_value(row, keys, default=None):
+        for key in keys:
+            if hasattr(row, "index") and key in row.index:
+                val = row.get(key)
+                if val is not None and val != "":
+                    return val
+        return default
+
+    def _fmt_int(value):
+        try:
+            if value is None or pd.isna(value):
+                return "N/A"
+            return f"{int(float(value)):,}"
+        except Exception:
+            return "N/A"
+
+    def _fmt_num(value, digits=4):
+        try:
+            if value is None or pd.isna(value):
+                return "N/A"
+            return f"{float(value):.{digits}f}"
+        except Exception:
+            return "N/A"
+
+    def _fmt_pct(value):
+        try:
+            if value is None or pd.isna(value):
+                return "N/A"
+            value = float(value)
+            if value <= 1:
+                return f"{value:.2%}"
+            return f"{value:.2f}%"
+        except Exception:
+            return "N/A"
+
+    def _extract_items(value):
+        if isinstance(value, (list, tuple, set)):
+            return [str(x).strip() for x in value if str(x).strip()]
+
+        text = str(value).strip()
+        if not text or text.lower() == "nan":
+            return []
+
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                parsed = ast.literal_eval(text)
+                if isinstance(parsed, (list, tuple, set)):
+                    return [str(x).strip() for x in parsed if str(x).strip()]
+            except Exception:
+                pass
+
+        return [x.strip() for x in text.split(",") if x.strip()]
+
+    def _find_basket_source_df():
+        preferred_names = [
+            "active_basket_df",
+            "filtered_basket_df",
+            "df_basket_filtered",
+            "df_basket",
+            "basket_df",
+            "online_retail_ii_basket_df"
+        ]
+
+        for name in preferred_names:
+            obj = globals().get(name)
+            if isinstance(obj, pd.DataFrame) and not obj.empty:
+                return obj.copy()
+
+        for _, obj in list(globals().items()):
+            if (
+                isinstance(obj, pd.DataFrame)
+                and not obj.empty
+                and {"InvoiceNo", "Items", "BasketSize"}.issubset(set(obj.columns))
+            ):
+                return obj.copy()
+
+        return pd.DataFrame()
+
+    def _filter_selected_baskets(source_df, selected_country_value):
+        if source_df.empty:
+            return source_df
+
+        if selected_country_value != "All" and "Country" in source_df.columns:
+            return source_df[
+                source_df["Country"].astype(str).str.strip()
+                == str(selected_country_value).strip()
+            ].copy()
+
+        return source_df.copy()
+
+    def _unique_item_count(basket_df_value):
+        if basket_df_value.empty:
+            return 0
+
+        if "StockCode" in basket_df_value.columns:
+            return basket_df_value["StockCode"].astype(str).nunique()
+
+        if "Items" in basket_df_value.columns:
+            unique_items = set()
+            for items_value in basket_df_value["Items"].dropna():
+                unique_items.update(_extract_items(items_value))
+            return len(unique_items)
+
+        return 0
+
+    active_outputs_safe = globals().get("active_outputs", {})
+    active_rules_safe = _as_df(globals().get("active_rules", pd.DataFrame()))
+    active_top20_safe = _as_df(globals().get("active_top20", pd.DataFrame()))
+    active_alg_runtime_safe = _as_df(globals().get("active_alg_runtime", pd.DataFrame()))
+
+    global_model_results_safe = pd.DataFrame()
+    for candidate_name in [
+        "global_model_results",
+        "df_model",
+        "df_causal",
+        "df_model_results",
+        "df_final_causal",
+        "df_final_causal_impact"
+    ]:
+        candidate_df = globals().get(candidate_name)
+        if isinstance(candidate_df, pd.DataFrame) and not candidate_df.empty:
+            global_model_results_safe = candidate_df.copy()
+            break
+
+    country_min_transactions = globals().get(
+        "COUNTRY_MIN_TRANSACTIONS",
+        globals().get("MIN_COUNTRY_TRANSACTIONS", 100)
+    )
+
+    basket_source_df = _find_basket_source_df()
+    selected_basket_df = _filter_selected_baskets(basket_source_df, selected_country)
+
+    basket_rows = len(selected_basket_df) if not selected_basket_df.empty else _pick_dict(
+        active_outputs_safe,
+        ["basket_rows", "baskets", "total_baskets", "rows"],
+        0
+    )
+
+    if not selected_basket_df.empty and "BasketSize" in selected_basket_df.columns:
+        usable_baskets = len(selected_basket_df[selected_basket_df["BasketSize"] > 1])
+    else:
+        usable_baskets = _pick_dict(
+            active_outputs_safe,
+            [
+                "transactions",
+                "transaction_count",
+                "usable_baskets",
+                "usable_basket_count",
+                "transaction_matrix_rows",
+                "matrix_rows"
+            ],
+            0
+        )
+
+    unique_products = _unique_item_count(selected_basket_df)
+    if unique_products == 0:
+        unique_products = _pick_dict(
+            active_outputs_safe,
+            [
+                "unique_products",
+                "product_count",
+                "n_products",
+                "transaction_matrix_cols",
+                "matrix_cols"
+            ],
+            0
+        )
+
+    generated_rules_count = _pick_dict(
+        active_outputs_safe,
+        ["generated_rules", "generated_rule_count", "rules_count"],
+        len(active_rules_safe)
+    )
+
+    strong_rules_count = _pick_dict(
+        active_outputs_safe,
+        ["strong_rules", "strong_rule_count"],
+        len(active_top20_safe)
+    )
+
+    output_status = _pick_dict(active_outputs_safe, ["status"], "global")
+    output_message = _pick_dict(active_outputs_safe, ["message"], "")
+
     st.caption(
         f"Current selection: {selected_country} | "
         f"{'Global conclusion' if selected_country == 'All' else 'Country-specific conclusion'}"
@@ -2404,126 +2602,152 @@ with tabs[6]:
     if selected_country == "All":
         st.subheader("Overall Market Basket Analysis Conclusion")
 
-        if active_top20.empty:
-            st.warning("No global top association rules are available.")
-        else:
-            top_rule = active_top20.iloc[0]
+        with st.container(border=True):
+            st.subheader("Global Association Rule Mining Summary")
 
-            top_rule_desc = top_rule.get("rule_desc", top_rule.get("rule", "N/A"))
-            top_support = top_rule.get("support", np.nan)
-            top_confidence = top_rule.get("confidence", np.nan)
-            top_lift = top_rule.get("lift", np.nan)
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total baskets", _fmt_int(basket_rows))
+            c2.metric("Usable baskets", _fmt_int(usable_baskets))
+            c3.metric("Unique products", _fmt_int(unique_products))
+            c4.metric("Generated rules", _fmt_int(generated_rules_count))
 
-            total_rules = len(active_rules) if isinstance(active_rules, pd.DataFrame) else 0
-            strong_rules = len(active_top20) if isinstance(active_top20, pd.DataFrame) else 0
+            if active_top20_safe.empty:
+                st.warning("No global top association rules are available.")
+            else:
+                top_rule = active_top20_safe.iloc[0]
 
-            st.markdown(f"""
-            <div class="insight-box">
-                <h3>Global Association Rule Mining Summary</h3>
-                <b>Total baskets:</b> {len(df_basket):,}<br>
-                <b>Total generated rules:</b> {total_rules:,}<br>
-                <b>Top displayed rules:</b> {strong_rules:,}<br><br>
+                top_rule_desc = _row_value(
+                    top_rule,
+                    ["rule_desc", "rule", "rule_display"],
+                    "N/A"
+                )
+                top_support = _row_value(top_rule, ["support"], None)
+                top_confidence = _row_value(top_rule, ["confidence"], None)
+                top_lift = _row_value(top_rule, ["lift"], None)
 
-                <b>Top global rule:</b> {top_rule_desc}<br>
-                <b>Support:</b> {top_support:.4f}<br>
-                <b>Confidence:</b> {top_confidence:.2%}<br>
-                <b>Lift:</b> {top_lift:.2f}<br><br>
+                st.write(f"**Top global rule:** {top_rule_desc}")
 
-                <b>Conclusion:</b> The global dataset contains strong product co-occurrence patterns that can support cross-selling and bundle recommendation decisions.
-                These patterns are association-based signals, not causal proof.
-            </div>
-            """, unsafe_allow_html=True)
+                r1, r2, r3 = st.columns(3)
+                r1.metric("Support", _fmt_num(top_support, 4))
+                r2.metric("Confidence", _fmt_pct(top_confidence))
+                r3.metric("Lift", _fmt_num(top_lift, 2))
 
-        if not global_model_results.empty:
-            final_model = global_model_results.tail(1).iloc[0]
+                st.write(
+                    "The global dataset contains strong product co-occurrence patterns "
+                    "that can support cross-selling and bundle recommendation decisions."
+                )
+                st.caption("Association rules are pattern-based signals, not causal proof.")
 
-            st.markdown(f"""
-            <div class="insight-box">
-                <h3>Global Regression Robustness Check</h3>
-                <b>Final model:</b> {final_model.get("Model", "N/A")}<br>
-                <b>Rule coefficient:</b> {final_model.get("Rule_Coefficient", np.nan)}<br>
-                <b>p-value:</b> {final_model.get("P_Value", np.nan)}<br>
-                <b>R-squared:</b> {final_model.get("R_Squared", np.nan)}<br><br>
+        if not global_model_results_safe.empty:
+            final_model = global_model_results_safe.tail(1).iloc[0]
 
-                <b>Interpretation:</b> The regression section is used as an observational robustness check.
-                It should not be interpreted as causal evidence.
-            </div>
-            """, unsafe_allow_html=True)
+            with st.container(border=True):
+                st.subheader("Global Regression Robustness Check")
 
-        st.markdown("""
-        <div class="insight-box">
-            <h3>Final Business Recommendation</h3>
-            Use high-lift and high-confidence rules as candidates for:
-            <br>1. Checkout recommendation
-            <br>2. Bundle promotion
-            <br>3. Product placement
-            <br>4. Add-to-cart suggestion
-            <br><br>
-            Final implementation should still be validated with real business experiments before deployment.
-        </div>
-        """, unsafe_allow_html=True)
+                m1, m2, m3 = st.columns(3)
+                m1.metric(
+                    "Rule coefficient",
+                    _fmt_num(_row_value(final_model, ["Rule_Coefficient", "rule_coefficient"], None), 4)
+                )
+                m2.metric(
+                    "p-value",
+                    _fmt_num(_row_value(final_model, ["P_Value", "p_value", "Rule_P_Value"], None), 4)
+                )
+                m3.metric(
+                    "R-squared",
+                    _fmt_num(_row_value(final_model, ["R_Squared", "r_squared"], None), 4)
+                )
+
+                st.write(f"**Final model:** {_row_value(final_model, ['Model'], 'N/A')}")
+                st.write(
+                    "The regression section is used as an observational robustness check. "
+                    "It should not be interpreted as causal evidence."
+                )
+
+        with st.container(border=True):
+            st.subheader("Final Business Recommendation")
+            st.write(
+                "Use high-lift and high-confidence rules as candidates for checkout recommendations, "
+                "bundle promotions, product placement, and add-to-cart suggestions."
+            )
+            st.caption("Final implementation should be validated with real business experiments before deployment.")
 
     else:
         st.subheader(f"Country-Specific Conclusion: {selected_country}")
 
-        if active_outputs["status"] != "completed":
-            st.warning(active_outputs["message"])
+        if output_status != "completed":
+            st.warning(output_message)
 
-            st.markdown(f"""
-            <div class="insight-box">
-                <h3>Conclusion for {selected_country}</h3>
-                Country-specific association rule mining was not executed because the selected country does not have enough usable baskets.
-                <br><br>
-                <b>Usable baskets:</b> {active_outputs.get("transactions", 0):,}<br>
-                <b>Minimum required:</b> {COUNTRY_MIN_TRANSACTIONS:,}<br><br>
-                <b>Decision:</b> Do not generate rule-based bundle or simulator recommendations for this country.
-                Use the global output only as general reference, not as a country-specific result.
-            </div>
-            """, unsafe_allow_html=True)
+            with st.container(border=True):
+                st.subheader(f"Conclusion for {selected_country}")
 
-        elif active_top20.empty:
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Basket rows", _fmt_int(basket_rows))
+                c2.metric("Usable baskets", _fmt_int(usable_baskets))
+                c3.metric("Minimum required", _fmt_int(country_min_transactions))
+
+                st.write(
+                    "Country-specific association rule mining was not executed because "
+                    "the selected country does not have enough usable baskets."
+                )
+                st.write(
+                    "Do not generate rule-based bundle or simulator recommendations for this country. "
+                    "Use the global output only as general reference, not as a country-specific result."
+                )
+
+        elif active_top20_safe.empty:
             st.warning("Country-specific mining completed, but no strong rules were found.")
 
-            st.markdown(f"""
-            <div class="insight-box">
-                <h3>Conclusion for {selected_country}</h3>
-                The selected country has enough baskets for mining, but no strong association rules passed the current support, confidence, and lift thresholds.
-                <br><br>
-                <b>Decision:</b> Lower thresholds carefully or collect more transaction data before making country-specific cross-selling recommendations.
-            </div>
-            """, unsafe_allow_html=True)
+            with st.container(border=True):
+                st.subheader(f"Conclusion for {selected_country}")
+                st.write(
+                    "The selected country has enough baskets for mining, but no strong association rules "
+                    "passed the current support, confidence, and lift thresholds."
+                )
+                st.write(
+                    "Lower thresholds carefully or collect more transaction data before making "
+                    "country-specific cross-selling recommendations."
+                )
 
         else:
-            top_rule = active_top20.iloc[0]
+            top_rule = active_top20_safe.iloc[0]
 
-            top_rule_desc = top_rule.get("rule_desc", top_rule.get("rule", "N/A"))
-            top_support = top_rule.get("support", np.nan)
-            top_confidence = top_rule.get("confidence", np.nan)
-            top_lift = top_rule.get("lift", np.nan)
+            top_rule_desc = _row_value(
+                top_rule,
+                ["rule_desc", "rule", "rule_display"],
+                "N/A"
+            )
+            top_support = _row_value(top_rule, ["support"], None)
+            top_confidence = _row_value(top_rule, ["confidence"], None)
+            top_lift = _row_value(top_rule, ["lift"], None)
 
-            total_rules = len(active_rules) if isinstance(active_rules, pd.DataFrame) else 0
-            strong_rules = len(active_top20) if isinstance(active_top20, pd.DataFrame) else 0
+            with st.container(border=True):
+                st.subheader(f"Association Rule Mining Result for {selected_country}")
 
-            st.markdown(f"""
-            <div class="insight-box">
-                <h3>Association Rule Mining Result for {selected_country}</h3>
-                <b>Usable baskets:</b> {active_outputs.get("transactions", 0):,}<br>
-                <b>Unique products:</b> {active_outputs.get("unique_products", 0):,}<br>
-                <b>Generated rules:</b> {total_rules:,}<br>
-                <b>Strong displayed rules:</b> {strong_rules:,}<br><br>
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Usable baskets", _fmt_int(usable_baskets))
+                c2.metric("Unique products", _fmt_int(unique_products))
+                c3.metric("Generated rules", _fmt_int(generated_rules_count))
+                c4.metric("Strong rules", _fmt_int(strong_rules_count))
 
-                <b>Top country-specific rule:</b> {top_rule_desc}<br>
-                <b>Support:</b> {top_support:.4f}<br>
-                <b>Confidence:</b> {top_confidence:.2%}<br>
-                <b>Lift:</b> {top_lift:.2f}<br><br>
+                st.write(f"**Top country-specific rule:** {top_rule_desc}")
 
-                <b>Conclusion:</b> {selected_country} has country-specific basket patterns that differ from the global output.
-                These rules should be used for localized cross-selling recommendations.
-            </div>
-            """, unsafe_allow_html=True)
+                r1, r2, r3 = st.columns(3)
+                r1.metric("Support", _fmt_num(top_support, 4))
+                r2.metric("Confidence", _fmt_pct(top_confidence))
+                r3.metric("Lift", _fmt_num(top_lift, 2))
 
-            if isinstance(active_alg_runtime, pd.DataFrame) and not active_alg_runtime.empty:
-                runtime_df = active_alg_runtime.copy()
+                st.write(
+                    f"{selected_country} has country-specific basket patterns that differ from the global output. "
+                    "These rules should be used for localized cross-selling recommendations."
+                )
+                st.caption("Association rules are pattern-based signals, not causal proof.")
+
+            if not active_alg_runtime_safe.empty and {
+                "Algorithm",
+                "Runtime_Seconds"
+            }.issubset(active_alg_runtime_safe.columns):
+                runtime_df = active_alg_runtime_safe.copy()
 
                 apriori_runtime = runtime_df.loc[
                     runtime_df["Algorithm"].astype(str).str.lower().eq("apriori"),
@@ -2535,34 +2759,29 @@ with tabs[6]:
                     "Runtime_Seconds"
                 ]
 
-                apriori_time = float(apriori_runtime.iloc[0]) if not apriori_runtime.empty else np.nan
-                fpgrowth_time = float(fpgrowth_runtime.iloc[0]) if not fpgrowth_runtime.empty else np.nan
+                apriori_time = float(apriori_runtime.iloc[0]) if not apriori_runtime.empty else None
+                fpgrowth_time = float(fpgrowth_runtime.iloc[0]) if not fpgrowth_runtime.empty else None
 
-                if pd.notna(apriori_time) and pd.notna(fpgrowth_time) and fpgrowth_time > 0:
-                    speedup = apriori_time / fpgrowth_time
-                    alg_text = f"FP-Growth was {speedup:.2f}x faster than Apriori for {selected_country}."
-                else:
-                    alg_text = "Runtime comparison is available, but speed-up cannot be calculated."
+                with st.container(border=True):
+                    st.subheader(f"Algorithm Comparison for {selected_country}")
 
-                st.markdown(f"""
-                <div class="insight-box">
-                    <h3>Algorithm Comparison for {selected_country}</h3>
-                    <b>Apriori runtime:</b> {apriori_time:.4f} seconds<br>
-                    <b>FP-Growth runtime:</b> {fpgrowth_time:.4f} seconds<br>
-                    <b>Interpretation:</b> {alg_text}
-                </div>
-                """, unsafe_allow_html=True)
+                    a1, a2, a3 = st.columns(3)
+                    a1.metric("Apriori runtime", _fmt_num(apriori_time, 4))
+                    a2.metric("FP-Growth runtime", _fmt_num(fpgrowth_time, 4))
 
-            country_model_outputs = st.session_state.get("country_model_outputs")
+                    if apriori_time is not None and fpgrowth_time is not None and fpgrowth_time > 0:
+                        speedup = apriori_time / fpgrowth_time
+                        a3.metric("FP-Growth speed-up", f"{speedup:.2f}x")
+                        st.write(f"FP-Growth was {speedup:.2f}x faster than Apriori for {selected_country}.")
+                    else:
+                        a3.metric("FP-Growth speed-up", "N/A")
+                        st.write("Runtime comparison is available, but speed-up cannot be calculated.")
 
-            if (
-                country_model_outputs is not None
-                and country_model_outputs.get("status") == "completed"
-                and isinstance(country_model_outputs.get("results"), pd.DataFrame)
-                and not country_model_outputs["results"].empty
-            ):
-                country_results = country_model_outputs["results"].copy()
+            country_model_outputs = st.session_state.get("country_model_outputs", {})
+            country_results = _as_df(country_model_outputs.get("results", pd.DataFrame()))
+            country_model_status = country_model_outputs.get("status", "")
 
+            if country_model_status == "completed" and not country_results.empty:
                 final_controlled = country_results[
                     country_results["Model"].astype(str).str.contains("Model 4A", case=False, na=False)
                 ]
@@ -2572,11 +2791,16 @@ with tabs[6]:
 
                 final_row = final_controlled.iloc[0]
 
-                coef = final_row.get("Rule_Coefficient", np.nan)
-                p_value = final_row.get("P_Value", np.nan)
-                r_squared = final_row.get("R_Squared", np.nan)
+                coef = _row_value(final_row, ["Rule_Coefficient", "rule_coefficient"], None)
+                p_value = _row_value(final_row, ["P_Value", "p_value", "Rule_P_Value"], None)
+                r_squared = _row_value(final_row, ["R_Squared", "r_squared"], None)
 
-                if pd.notna(p_value) and p_value < 0.05:
+                try:
+                    p_value_float = float(p_value)
+                except Exception:
+                    p_value_float = None
+
+                if p_value_float is not None and p_value_float < 0.05:
                     regression_conclusion = (
                         "The selected rule remains statistically significant after basket-level controls."
                     )
@@ -2585,41 +2809,34 @@ with tabs[6]:
                         "The selected rule is not statistically significant after basket-level controls."
                     )
 
-                st.markdown(f"""
-                <div class="insight-box">
-                    <h3>Regression Robustness Check for {selected_country}</h3>
-                    <b>Final controlled model:</b> {final_row.get("Model", "N/A")}<br>
-                    <b>Rule coefficient:</b> {coef}<br>
-                    <b>p-value:</b> {p_value}<br>
-                    <b>R-squared:</b> {r_squared}<br><br>
+                with st.container(border=True):
+                    st.subheader(f"Regression Robustness Check for {selected_country}")
 
-                    <b>Interpretation:</b> {regression_conclusion}
-                    This regression result is observational and should not be interpreted as causal proof.
-                </div>
-                """, unsafe_allow_html=True)
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Rule coefficient", _fmt_num(coef, 4))
+                    m2.metric("p-value", _fmt_num(p_value, 4))
+                    m3.metric("R-squared", _fmt_num(r_squared, 4))
+
+                    st.write(f"**Final controlled model:** {_row_value(final_row, ['Model'], 'N/A')}")
+                    st.write(regression_conclusion)
+                    st.caption("This regression result is observational and should not be interpreted as causal proof.")
 
             else:
-                st.markdown(f"""
-                <div class="insight-box">
-                    <h3>Regression Robustness Check for {selected_country}</h3>
-                    Country-specific regression output is not available or was not completed.
-                    The final recommendation should rely only on association-rule evidence for this country.
-                </div>
-                """, unsafe_allow_html=True)
+                with st.container(border=True):
+                    st.subheader(f"Regression Robustness Check for {selected_country}")
+                    st.write(
+                        "Country-specific regression output is not available or was not completed. "
+                        "The final recommendation should rely only on association-rule evidence for this country."
+                    )
 
-            st.markdown(f"""
-            <div class="insight-box">
-                <h3>Final Business Recommendation for {selected_country}</h3>
-                Prioritize the strongest country-specific rules for localized cross-selling actions.
-                <br><br>
-                Suggested actions:
-                <br>1. Recommend the consequent item at checkout.
-                <br>2. Test bundle promotion using the antecedent and consequent products.
-                <br>3. Compare performance against the global rule set.
-                <br><br>
-                These recommendations are candidate business actions and require real-world validation.
-            </div>
-            """, unsafe_allow_html=True)
+            with st.container(border=True):
+                st.subheader(f"Final Business Recommendation for {selected_country}")
+                st.write(
+                    "Prioritize the strongest country-specific rules for localized cross-selling actions. "
+                    "Recommended actions include checkout recommendations, bundle promotion tests, "
+                    "and comparison against the global rule set."
+                )
+                st.caption("These recommendations are candidate business actions and require real-world validation.")
 # ------------------------------------------
 # TAB 8: RUN MBA ON NEW DATASET - UPLOAD + VALIDATION ONLY
 # ------------------------------------------
