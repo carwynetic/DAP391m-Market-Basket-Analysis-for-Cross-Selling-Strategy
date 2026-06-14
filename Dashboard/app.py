@@ -2535,78 +2535,44 @@ with tabs[6]:
             global_model_results_safe = candidate_df.copy()
             break
 
-    country_min_transactions = globals().get(
-        "COUNTRY_MIN_TRANSACTIONS",
-        globals().get("MIN_COUNTRY_TRANSACTIONS", 100)
-    )
+    country_min_transactions = globals().get("COUNTRY_ARM_MIN_BASKETS", 100)
 
-    basket_source_df = _find_basket_source_df()
-    selected_basket_df = _filter_selected_baskets(basket_source_df, selected_country)
+    country_filter_audit_safe = globals().get("country_filter_audit", {}) or {}
 
-    basket_rows = len(selected_basket_df) if not selected_basket_df.empty else _pick_dict(
-        active_outputs_safe,
-        ["basket_rows", "baskets", "total_baskets", "rows"],
-        0
-    )
-
-    if not selected_basket_df.empty and "BasketSize" in selected_basket_df.columns:
-        usable_baskets = len(selected_basket_df[selected_basket_df["BasketSize"] > 1])
+    if selected_country == "All":
+        country_mba_outputs_safe = None
     else:
-        usable_baskets = _pick_dict(
-            active_outputs_safe,
-            [
-                "transactions",
-                "transaction_count",
-                "usable_baskets",
-                "usable_basket_count",
-                "transaction_matrix_rows",
-                "matrix_rows"
-            ],
-            0
-        )
+        country_mba_outputs_safe = st.session_state.get("country_mba_outputs")
 
-    unique_products = _unique_item_count(selected_basket_df)
-    if unique_products == 0:
-        unique_products = _pick_dict(
-            active_outputs_safe,
-            [
-                "unique_products",
-                "product_count",
-                "n_products",
-                "transaction_matrix_cols",
-                "matrix_cols"
-            ],
-            0
-        )
+    basket_rows = int(country_filter_audit_safe.get("basket_rows", 0))
+    usable_baskets = int(country_filter_audit_safe.get("usable_baskets", 0))
+    unique_products = int(country_filter_audit_safe.get("unique_products", 0))
 
-    generated_rules_count = _pick_dict(
-        active_outputs_safe,
-        [
-            "generated_rules",
-            "generated_rule_count",
-            "rules_count",
-            "total_rules",
-            "all_rules_count",
-            "association_rules_count"
-        ],
-        len(active_rules_safe)
-    )
+    if selected_country == "All":
+        generated_rules_count = len(df_rules) if isinstance(df_rules, pd.DataFrame) else len(active_rules_safe)
+        strong_rules_count = len(df_rules) if isinstance(df_rules, pd.DataFrame) else len(active_rules_safe)
 
-    strong_rules_count = _pick_dict(
-        active_outputs_safe,
-        [
-            "strong_rules",
-            "strong_rule_count",
-            "total_strong_rules",
-            "strong_rules_count",
-            "filtered_rules_count"
-        ],
-        len(active_rules_safe)
-    )
+    else:
+        if isinstance(country_mba_outputs_safe, dict):
+            generated_rules_count = len(_as_df(country_mba_outputs_safe.get("rules", pd.DataFrame())))
+            strong_rules_count = len(_as_df(country_mba_outputs_safe.get("strong_rules", pd.DataFrame())))
+
+            matrix_shape = country_mba_outputs_safe.get("transaction_matrix_shape", (0, 0))
+            if (
+                isinstance(matrix_shape, tuple)
+                and len(matrix_shape) == 2
+                and int(matrix_shape[1]) > 0
+            ):
+                unique_products = int(matrix_shape[1])
+
+            usable_baskets = int(country_mba_outputs_safe.get("transactions", usable_baskets))
+        else:
+            generated_rules_count = 0
+            strong_rules_count = 0
 
     output_status = _pick_dict(active_outputs_safe, ["status"], "global")
     output_message = _pick_dict(active_outputs_safe, ["message"], "")
-
+############################################################
     st.caption(
         f"Current selection: {selected_country} | "
         f"{'Global conclusion' if selected_country == 'All' else 'Country-specific conclusion'}"
