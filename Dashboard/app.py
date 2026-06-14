@@ -2581,14 +2581,27 @@ with tabs[6]:
 
     generated_rules_count = _pick_dict(
         active_outputs_safe,
-        ["generated_rules", "generated_rule_count", "rules_count"],
+        [
+            "generated_rules",
+            "generated_rule_count",
+            "rules_count",
+            "total_rules",
+            "all_rules_count",
+            "association_rules_count"
+        ],
         len(active_rules_safe)
     )
 
     strong_rules_count = _pick_dict(
         active_outputs_safe,
-        ["strong_rules", "strong_rule_count"],
-        len(active_top20_safe)
+        [
+            "strong_rules",
+            "strong_rule_count",
+            "total_strong_rules",
+            "strong_rules_count",
+            "filtered_rules_count"
+        ],
+        len(active_rules_safe)
     )
 
     output_status = _pick_dict(active_outputs_safe, ["status"], "global")
