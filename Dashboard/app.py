@@ -10,7 +10,7 @@ from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import apriori, fpgrowth, association_rules
 
 import time
-
+import statsmodels.formula.api as smf
 # ==========================================
 # 1. PAGE CONFIG & CUSTOM CSS
 # ==========================================
@@ -812,7 +812,104 @@ def remove_regression_outliers(df, selected_cols=None, upper_quantile=0.995):
     }
 
     return cleaned_df, stats
-    
+
+# ==========================================
+# REGRESSION MODEL RUNNER
+# ==========================================
+
+def run_uploaded_ols_regression_models(df):
+    df = df.copy()
+
+    required_cols = [
+        "ProductRevenue",
+        "rule_applied",
+        "BasketSize",
+        "AvgUnitPrice",
+        "TotalQuantity",
+        "Country"
+    ]
+
+    missing_cols = [col for col in required_cols if col not in df.columns]
+
+    if missing_cols:
+        return pd.DataFrame(), [f"Missing required columns for regression: {missing_cols}"]
+
+    numeric_cols = [
+        "ProductRevenue",
+        "rule_applied",
+        "BasketSize",
+        "AvgUnitPrice",
+        "TotalQuantity"
+    ]
+
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df["Country"] = df["Country"].astype(str).str.strip()
+
+    df = df.dropna(subset=required_cols).copy()
+
+    if df.empty:
+        return pd.DataFrame(), ["Regression dataset is empty after dropping missing values."]
+
+    if df["rule_applied"].nunique() < 2:
+        return pd.DataFrame(), ["rule_applied must contain both 0 and 1 before running regression."]
+
+    model_specs = [
+        {
+            "Model": "Model 1A: Baseline",
+            "Formula": "ProductRevenue ~ rule_applied"
+        },
+        {
+            "Model": "Model 2A: + BasketSize",
+            "Formula": "ProductRevenue ~ rule_applied + BasketSize"
+        },
+        {
+            "Model": "Model 3A: + AvgUnitPrice",
+            "Formula": "ProductRevenue ~ rule_applied + BasketSize + AvgUnitPrice"
+        },
+        {
+            "Model": "Model 4A: + TotalQuantity",
+            "Formula": "ProductRevenue ~ rule_applied + BasketSize + AvgUnitPrice + TotalQuantity"
+        },
+        {
+            "Model": "Model 5A: + Country Controls",
+            "Formula": "ProductRevenue ~ rule_applied + BasketSize + AvgUnitPrice + TotalQuantity + C(Country)"
+        }
+    ]
+
+    results = []
+    errors = []
+
+    for spec in model_specs:
+        try:
+            fitted_model = smf.ols(
+                formula=spec["Formula"],
+                data=df
+            ).fit(cov_type="HC3")
+
+            rule_coef = fitted_model.params.get("rule_applied", np.nan)
+            rule_pvalue = fitted_model.pvalues.get("rule_applied", np.nan)
+            rule_std_error = fitted_model.bse.get("rule_applied", np.nan)
+            rule_tvalue = fitted_model.tvalues.get("rule_applied", np.nan)
+
+            results.append({
+                "Model": spec["Model"],
+                "Formula": spec["Formula"],
+                "N_Observations": int(fitted_model.nobs),
+                "Rule_Coefficient": rule_coef,
+                "Rule_Std_Error": rule_std_error,
+                "Rule_T_Value": rule_tvalue,
+                "Rule_P_Value": rule_pvalue,
+                "R_Squared": fitted_model.rsquared,
+                "Adjusted_R_Squared": fitted_model.rsquared_adj
+            })
+
+        except Exception as e:
+            errors.append(f"{spec['Model']} failed: {e}")
+
+    return pd.DataFrame(results), errors
+
 # ==========================================
 # 3. SIDEBAR
 # ==========================================
@@ -2149,164 +2246,337 @@ with tabs[8]:
                         <b>Next stage:</b> remove outliers before running OLS regression models.
                     </div>
                     """, unsafe_allow_html=True)
-                    # ==========================================
-                    # STAGE 5: OUTLIER TREATMENT
-                    # ==========================================
+                # ==========================================
+                # STAGE 5: OUTLIER TREATMENT
+                # ==========================================
 
-                    st.markdown("---")
-                    st.subheader("Outlier Treatment for Regression")
+                st.markdown("---")
+                st.subheader("Outlier Treatment for Regression")
 
-                    if "regression_rule_applied_df" not in st.session_state:
-                        st.info("Create rule_applied first before removing outliers.")
-                    else:
-                        rule_applied_df = st.session_state["regression_rule_applied_df"]
+                if "regression_rule_applied_df" not in st.session_state:
+                    st.info("Create rule_applied first before removing outliers.")
+                else:
+                    rule_applied_df = st.session_state["regression_rule_applied_df"]
 
-                        st.markdown(
-                            "Remove extreme upper-tail observations before running OLS regression. "
-                            "This helps reduce distortion from unusually large basket revenue, quantity, or price values."
+                    st.markdown(
+                        "Remove extreme upper-tail observations before running OLS regression. "
+                        "This helps reduce distortion from unusually large basket revenue, quantity, or price values."
+                    )
+
+                    outlier_cols = st.multiselect(
+                        "Select columns for outlier treatment",
+                        options=[
+                            "ProductRevenue",
+                            "BasketSize",
+                            "TotalQuantity",
+                            "AvgUnitPrice"
+                        ],
+                        default=[
+                            "ProductRevenue",
+                            "BasketSize",
+                            "TotalQuantity",
+                            "AvgUnitPrice"
+                        ],
+                        key="regression_outlier_columns"
+                    )
+
+                    upper_quantile = st.slider(
+                        "Upper quantile threshold",
+                        min_value=0.950,
+                        max_value=0.999,
+                        value=0.995,
+                        step=0.001,
+                        format="%.3f",
+                        key="regression_upper_quantile"
+                    )
+
+                    apply_outlier_button = st.button(
+                        "Apply Outlier Treatment",
+                        key="apply_regression_outlier_treatment"
+                    )
+
+                    if apply_outlier_button:
+                        regression_cleaned_df, outlier_stats = remove_regression_outliers(
+                            rule_applied_df,
+                            selected_cols=outlier_cols,
+                            upper_quantile=upper_quantile
                         )
 
-                        outlier_cols = st.multiselect(
-                            "Select columns for outlier treatment",
-                            options=[
-                                "ProductRevenue",
-                                "BasketSize",
-                                "TotalQuantity",
-                                "AvgUnitPrice"
-                            ],
-                            default=[
-                                "ProductRevenue",
-                                "BasketSize",
-                                "TotalQuantity",
-                                "AvgUnitPrice"
-                            ],
-                            key="regression_outlier_columns"
+                        if "error" in outlier_stats:
+                            st.error(outlier_stats["error"])
+                        else:
+                            st.session_state["regression_cleaned_df"] = regression_cleaned_df
+                            st.session_state["regression_outlier_stats"] = outlier_stats
+
+                    if "regression_cleaned_df" in st.session_state:
+                        regression_cleaned_df = st.session_state["regression_cleaned_df"]
+                        outlier_stats = st.session_state["regression_outlier_stats"]
+
+                        st.success("Outlier treatment completed successfully.")
+
+                        o1, o2, o3, o4 = st.columns(4)
+                        o1.metric("Rows Before", f"{outlier_stats['rows_before']:,}")
+                        o2.metric("Rows After", f"{outlier_stats['rows_after']:,}")
+                        o3.metric("Removed Rows", f"{outlier_stats['removed_rows']:,}")
+                        o4.metric("Removed Rate", f"{outlier_stats['removed_rate']:.2%}")
+
+                        st.markdown("### Outlier Thresholds")
+
+                        threshold_df = outlier_stats["thresholds"].copy()
+                        st.dataframe(threshold_df, use_container_width=True)
+
+                        st.markdown("### Numeric Summary After Outlier Treatment")
+
+                        numeric_cols_after = [
+                            "BasketSize",
+                            "ProductRevenue",
+                            "TotalQuantity",
+                            "AvgUnitPrice",
+                            "rule_applied"
+                        ]
+
+                        available_numeric_cols_after = [
+                            col for col in numeric_cols_after
+                            if col in regression_cleaned_df.columns
+                        ]
+
+                        numeric_summary_after = (
+                            regression_cleaned_df[available_numeric_cols_after]
+                            .describe()
+                            .T
+                            .reset_index()
+                            .rename(columns={"index": "Feature"})
                         )
 
-                        upper_quantile = st.slider(
-                            "Upper quantile threshold",
-                            min_value=0.950,
-                            max_value=0.999,
-                            value=0.995,
-                            step=0.001,
-                            format="%.3f",
-                            key="regression_upper_quantile"
+                        st.dataframe(numeric_summary_after, use_container_width=True)
+
+                        st.markdown("### rule_applied After Outlier Treatment")
+
+                        cleaned_rule_summary = (
+                            regression_cleaned_df["rule_applied"]
+                            .value_counts()
+                            .reset_index()
+                        )
+                        cleaned_rule_summary.columns = ["rule_applied", "Basket_Count"]
+
+                        st.dataframe(cleaned_rule_summary, use_container_width=True)
+
+                        fig_cleaned_rule = px.bar(
+                            cleaned_rule_summary,
+                            x="rule_applied",
+                            y="Basket_Count",
+                            title="rule_applied Distribution After Outlier Treatment"
                         )
 
-                        apply_outlier_button = st.button(
-                            "Apply Outlier Treatment",
-                            key="apply_regression_outlier_treatment"
+                        fig_cleaned_rule.update_layout(
+                            template="plotly_dark",
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            xaxis_title="rule_applied",
+                            yaxis_title="Basket Count"
                         )
 
-                        if apply_outlier_button:
-                            regression_cleaned_df, outlier_stats = remove_regression_outliers(
-                                rule_applied_df,
-                                selected_cols=outlier_cols,
-                                upper_quantile=upper_quantile
-                            )
+                        st.plotly_chart(fig_cleaned_rule, use_container_width=True)
 
-                            if "error" in outlier_stats:
-                                st.error(outlier_stats["error"])
-                            else:
-                                st.session_state["regression_cleaned_df"] = regression_cleaned_df
-                                st.session_state["regression_outlier_stats"] = outlier_stats
+                        st.markdown("### Cleaned Regression Dataset Preview")
 
-                        if "regression_cleaned_df" in st.session_state:
-                            regression_cleaned_df = st.session_state["regression_cleaned_df"]
-                            outlier_stats = st.session_state["regression_outlier_stats"]
+                        preview_clean_cols = [
+                            "InvoiceNo",
+                            "BasketSize",
+                            "ProductRevenue",
+                            "TotalQuantity",
+                            "AvgUnitPrice",
+                            "Country",
+                            "rule_applied"
+                        ]
 
-                            st.success("Outlier treatment completed successfully.")
+                        available_preview_clean_cols = [
+                            col for col in preview_clean_cols
+                            if col in regression_cleaned_df.columns
+                        ]
 
-                            o1, o2, o3, o4 = st.columns(4)
-                            o1.metric("Rows Before", f"{outlier_stats['rows_before']:,}")
-                            o2.metric("Rows After", f"{outlier_stats['rows_after']:,}")
-                            o3.metric("Removed Rows", f"{outlier_stats['removed_rows']:,}")
-                            o4.metric("Removed Rate", f"{outlier_stats['removed_rate']:.2%}")
+                        st.dataframe(
+                            regression_cleaned_df[available_preview_clean_cols].head(50),
+                            use_container_width=True
+                        )
 
-                            st.markdown("### Outlier Thresholds")
+                        st.markdown("""
+                        <div class="insight-box">
+                            <b>Status:</b> Outlier treatment completed successfully.<br>
+                            <b>Next stage:</b> run OLS regression models using the cleaned regression dataset.
+                        </div>
+                        """, unsafe_allow_html=True)
+                # ==========================================
+                # STAGE 6: RUN OLS REGRESSION MODELS
+                # ==========================================
 
-                            threshold_df = outlier_stats["thresholds"].copy()
-                            st.dataframe(threshold_df, use_container_width=True)
+                st.markdown("---")
+                st.subheader("OLS Regression Models")
 
-                            st.markdown("### Numeric Summary After Outlier Treatment")
+                if "regression_cleaned_df" not in st.session_state:
+                    st.info("Apply outlier treatment first before running regression models.")
+                else:
+                    regression_cleaned_df = st.session_state["regression_cleaned_df"]
 
-                            numeric_cols_after = [
-                                "BasketSize",
-                                "ProductRevenue",
-                                "TotalQuantity",
-                                "AvgUnitPrice",
-                                "rule_applied"
+                    st.markdown(
+                        "Run OLS regression models to test whether `rule_applied` is associated with "
+                        "`ProductRevenue` after adding basket-level controls."
+                    )
+
+                    run_regression_button = st.button(
+                        "Run OLS Regression Models",
+                        key="run_uploaded_ols_regression_models"
+                    )
+
+                    if run_regression_button:
+                        regression_results_df, regression_errors = run_uploaded_ols_regression_models(
+                            regression_cleaned_df
+                        )
+
+                        st.session_state["uploaded_regression_results_df"] = regression_results_df
+                        st.session_state["uploaded_regression_errors"] = regression_errors
+
+                    if "uploaded_regression_results_df" in st.session_state:
+                        regression_results_df = st.session_state["uploaded_regression_results_df"]
+                        regression_errors = st.session_state["uploaded_regression_errors"]
+
+                        if regression_errors:
+                            st.warning("Some regression models returned warnings or errors:")
+                            for err in regression_errors:
+                                st.markdown(f"- {err}")
+
+                        if regression_results_df.empty:
+                            st.error("No regression results were generated.")
+                        else:
+                            st.success("OLS regression models completed successfully.")
+
+                            st.markdown("### Regression Results Summary")
+
+                            display_regression_df = regression_results_df.copy()
+
+                            numeric_display_cols = [
+                                "Rule_Coefficient",
+                                "Rule_Std_Error",
+                                "Rule_T_Value",
+                                "Rule_P_Value",
+                                "R_Squared",
+                                "Adjusted_R_Squared"
                             ]
 
-                            available_numeric_cols_after = [
-                                col for col in numeric_cols_after
-                                if col in regression_cleaned_df.columns
+                            for col in numeric_display_cols:
+                                if col in display_regression_df.columns:
+                                    display_regression_df[col] = display_regression_df[col].round(4)
+
+                            st.dataframe(display_regression_df, use_container_width=True)
+
+                            final_model_row = regression_results_df[
+                                regression_results_df["Model"].str.contains("Model 5A", case=False, na=False)
                             ]
 
-                            numeric_summary_after = (
-                                regression_cleaned_df[available_numeric_cols_after]
-                                .describe()
-                                .T
-                                .reset_index()
-                                .rename(columns={"index": "Feature"})
+                            if not final_model_row.empty:
+                                final_model = final_model_row.iloc[0]
+
+                                k1, k2, k3, k4 = st.columns(4)
+                                k1.metric("Final Model Rule Coef", f"{final_model['Rule_Coefficient']:.4f}")
+                                k2.metric("Final Model p-value", f"{final_model['Rule_P_Value']:.4f}")
+                                k3.metric("Final Model R²", f"{final_model['R_Squared']:.4f}")
+                                k4.metric("Observations", f"{int(final_model['N_Observations']):,}")
+
+                            chart_col1, chart_col2 = st.columns(2)
+
+                            with chart_col1:
+                                fig_coef = px.bar(
+                                    regression_results_df,
+                                    x="Model",
+                                    y="Rule_Coefficient",
+                                    title="rule_applied Coefficient by Regression Model"
+                                )
+
+                                fig_coef.update_layout(
+                                    template="plotly_dark",
+                                    plot_bgcolor="rgba(0,0,0,0)",
+                                    paper_bgcolor="rgba(0,0,0,0)",
+                                    xaxis_title="Model",
+                                    yaxis_title="Coefficient"
+                                )
+
+                                st.plotly_chart(fig_coef, use_container_width=True)
+
+                            with chart_col2:
+                                fig_pvalue = px.bar(
+                                    regression_results_df,
+                                    x="Model",
+                                    y="Rule_P_Value",
+                                    title="rule_applied p-value by Regression Model"
+                                )
+
+                                fig_pvalue.add_hline(
+                                    y=0.05,
+                                    line_dash="dash",
+                                    annotation_text="0.05 threshold"
+                                )
+
+                                fig_pvalue.update_layout(
+                                    template="plotly_dark",
+                                    plot_bgcolor="rgba(0,0,0,0)",
+                                    paper_bgcolor="rgba(0,0,0,0)",
+                                    xaxis_title="Model",
+                                    yaxis_title="p-value"
+                                )
+
+                                st.plotly_chart(fig_pvalue, use_container_width=True)
+
+                            fig_r2 = px.bar(
+                                regression_results_df,
+                                x="Model",
+                                y="R_Squared",
+                                title="R-Squared by Regression Model"
                             )
 
-                            st.dataframe(numeric_summary_after, use_container_width=True)
-
-                            st.markdown("### rule_applied After Outlier Treatment")
-
-                            cleaned_rule_summary = (
-                                regression_cleaned_df["rule_applied"]
-                                .value_counts()
-                                .reset_index()
-                            )
-                            cleaned_rule_summary.columns = ["rule_applied", "Basket_Count"]
-
-                            st.dataframe(cleaned_rule_summary, use_container_width=True)
-
-                            fig_cleaned_rule = px.bar(
-                                cleaned_rule_summary,
-                                x="rule_applied",
-                                y="Basket_Count",
-                                title="rule_applied Distribution After Outlier Treatment"
-                            )
-
-                            fig_cleaned_rule.update_layout(
+                            fig_r2.update_layout(
                                 template="plotly_dark",
                                 plot_bgcolor="rgba(0,0,0,0)",
                                 paper_bgcolor="rgba(0,0,0,0)",
-                                xaxis_title="rule_applied",
-                                yaxis_title="Basket Count"
+                                xaxis_title="Model",
+                                yaxis_title="R-Squared"
                             )
 
-                            st.plotly_chart(fig_cleaned_rule, use_container_width=True)
+                            st.plotly_chart(fig_r2, use_container_width=True)
 
-                            st.markdown("### Cleaned Regression Dataset Preview")
+                            st.markdown("### Regression Interpretation")
 
-                            preview_clean_cols = [
-                                "InvoiceNo",
-                                "BasketSize",
-                                "ProductRevenue",
-                                "TotalQuantity",
-                                "AvgUnitPrice",
-                                "Country",
-                                "rule_applied"
-                            ]
+                            if not final_model_row.empty:
+                                final_coef = final_model["Rule_Coefficient"]
+                                final_pvalue = final_model["Rule_P_Value"]
+                                final_r2 = final_model["R_Squared"]
 
-                            available_preview_clean_cols = [
-                                col for col in preview_clean_cols
-                                if col in regression_cleaned_df.columns
-                            ]
+                                if final_pvalue < 0.05:
+                                    final_conclusion = (
+                                        "In the final controlled model, rule_applied remains statistically significant. "
+                                        "This suggests that baskets containing the selected rule are still associated with different ProductRevenue "
+                                        "after controlling for BasketSize, AvgUnitPrice, TotalQuantity, and Country."
+                                    )
+                                else:
+                                    final_conclusion = (
+                                        "In the final controlled model, rule_applied is not statistically significant. "
+                                        "This suggests that the raw revenue difference is likely explained by basket-level controls."
+                                    )
 
-                            st.dataframe(
-                                regression_cleaned_df[available_preview_clean_cols].head(50),
-                                use_container_width=True
-                            )
+                                st.markdown(f"""
+                                <div class="insight-box">
+                                    <b>Final Controlled Model:</b> Model 5A<br>
+                                    <b>rule_applied coefficient:</b> {final_coef:.4f}<br>
+                                    <b>p-value:</b> {final_pvalue:.4f}<br>
+                                    <b>R-squared:</b> {final_r2:.4f}<br><br>
+                                    <b>Conclusion:</b> {final_conclusion}<br><br>
+                                    <b>Important note:</b> This is an observational robustness check, not causal proof.
+                                </div>
+                                """, unsafe_allow_html=True)
 
                             st.markdown("""
                             <div class="insight-box">
-                                <b>Status:</b> Outlier treatment completed successfully.<br>
-                                <b>Next stage:</b> run OLS regression models using the cleaned regression dataset.
+                                <b>Status:</b> OLS regression models completed successfully.<br>
+                                <b>Next stage:</b> add regression output downloads and final interpretation card.
                             </div>
                             """, unsafe_allow_html=True)
 
