@@ -1493,6 +1493,7 @@ PROJECT_KNOWLEDGE = {
     "research_questions": [
         "RQ1: Which basket association rules have the highest lift values while still meeting minimum support and confidence thresholds?",
         "RQ2: Which product categories or product groups show strong cross-selling potential based on co-occurrence and lift?"
+        "RQ3: Whether baskets containing a representative high-lift association are associated with higher basket value after controlling for basket characteristics."
     ],
     "team_members": [
         "Không đủ dữ liệu để xác minh. Điền tên thành viên nhóm vào PROJECT_KNOWLEDGE['team_members']."
@@ -1759,7 +1760,8 @@ PROJECT_OBJECTIVE = (
 
 PROJECT_RESEARCH_QUESTIONS = [
     "RQ1: Which basket association rules have the highest lift values while still meeting minimum support and confidence thresholds?",
-    "RQ2: Which product categories show the strongest cross-selling potential based on co-occurrence and category-level lift?"
+    "RQ2: Which product pairs or itemsets appear as promising cross-selling candidates based on co-occurrence and lift?",
+    "RQ3: Whether baskets containing a representative high-lift association are associated with higher basket value after controlling for basket characteristics."
 ]
 
 PROJECT_MEMBERS = [
