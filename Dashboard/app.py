@@ -1319,6 +1319,100 @@ with st.sidebar.expander("Country ARM Pipeline Audit"):
             st.markdown(f"**FP-Growth itemsets:** {len(country_mba_outputs['fpgrowth_itemsets']):,}")
             st.markdown(f"**Generated rules:** {len(country_mba_outputs['rules']):,}")
             st.markdown(f"**Strong rules:** {len(country_mba_outputs['strong_rules']):,}")
+
+# ==========================================
+# ACTIVE DASHBOARD OUTPUT SELECTOR
+# ==========================================
+
+def get_active_dashboard_outputs(
+    selected_country,
+    df_rules,
+    df_top20,
+    df_alg_runtime,
+    df_apr_freq,
+    df_fp_freq,
+    product_map
+):
+    if selected_country == "All":
+        return {
+            "mode": "Global precomputed outputs",
+            "status": "completed",
+            "message": "Using global precomputed dashboard outputs.",
+            "rules": df_rules.copy(),
+            "top20": df_top20.copy(),
+            "runtime": df_alg_runtime.copy(),
+            "apriori_itemsets": df_apr_freq.copy(),
+            "fpgrowth_itemsets": df_fp_freq.copy()
+        }
+
+    country_outputs = st.session_state.get("country_mba_outputs")
+
+    if country_outputs is None:
+        return {
+            "mode": "Country-specific outputs",
+            "status": "not_available",
+            "message": "Country-specific MBA output is not available.",
+            "rules": pd.DataFrame(),
+            "top20": pd.DataFrame(),
+            "runtime": pd.DataFrame(),
+            "apriori_itemsets": pd.DataFrame(),
+            "fpgrowth_itemsets": pd.DataFrame()
+        }
+
+    if country_outputs.get("status") != "completed":
+        return {
+            "mode": "Country-specific outputs",
+            "status": country_outputs.get("status", "unknown"),
+            "message": country_outputs.get("message", "Country-specific pipeline did not complete."),
+            "rules": pd.DataFrame(),
+            "top20": pd.DataFrame(),
+            "runtime": country_outputs.get("runtime_summary", pd.DataFrame()).copy(),
+            "apriori_itemsets": country_outputs.get("apriori_itemsets", pd.DataFrame()).copy(),
+            "fpgrowth_itemsets": country_outputs.get("fpgrowth_itemsets", pd.DataFrame()).copy()
+        }
+
+    country_rules = country_outputs.get("strong_rules", pd.DataFrame()).copy()
+
+    if country_rules.empty:
+        country_rules = country_outputs.get("rules", pd.DataFrame()).copy()
+
+    if not country_rules.empty:
+        country_rules = enrich_rules_with_description(country_rules, product_map)
+        country_rules = country_rules.sort_values(
+            ["lift", "confidence", "support"],
+            ascending=[False, False, False]
+        ).reset_index(drop=True)
+
+    country_top20 = country_rules.head(20).copy()
+
+    return {
+        "mode": "Country-specific outputs",
+        "status": "completed",
+        "message": country_outputs.get("message", "Country-specific MBA pipeline completed successfully."),
+        "rules": country_rules,
+        "top20": country_top20,
+        "runtime": country_outputs.get("runtime_summary", pd.DataFrame()).copy(),
+        "apriori_itemsets": country_outputs.get("apriori_itemsets", pd.DataFrame()).copy(),
+        "fpgrowth_itemsets": country_outputs.get("fpgrowth_itemsets", pd.DataFrame()).copy()
+    }
+
+
+active_outputs = get_active_dashboard_outputs(
+    selected_country=selected_country,
+    df_rules=df_rules,
+    df_top20=df_top20,
+    df_alg_runtime=df_alg_runtime,
+    df_apr_freq=df_apr_freq,
+    df_fp_freq=df_fp_freq,
+    product_map=product_map
+)
+
+active_rules = active_outputs["rules"]
+active_top20 = active_outputs["top20"]
+active_alg_runtime = active_outputs["runtime"]
+active_apr_freq = active_outputs["apriori_itemsets"]
+active_fp_freq = active_outputs["fpgrowth_itemsets"]
+
 # ==========================================
 # 4. TABS SETUP
 # ==========================================
@@ -1408,97 +1502,211 @@ with tabs[0]:
 # ------------------------------------------
 # TAB 2: RULES EXPLORER
 # ------------------------------------------
+# ------------------------------------------
+# TAB 2: RULES EXPLORER
+# ------------------------------------------
 with tabs[1]:
     st.header("Rules Explorer")
     st.markdown("**(RQ1)** Which basket association rules have the highest lift values while still meeting minimum support and confidence thresholds?")
-    
-    if df_rules.empty:
-        st.warning("Association rules dataset not found.")
+
+    st.caption(
+        f"Current output mode: {active_outputs['mode']} | "
+        f"Selected country: {selected_country} | "
+        f"Status: {active_outputs['status']}"
+    )
+
+    if active_rules.empty:
+        st.warning(active_outputs["message"])
     else:
         rc1, rc2, rc3 = st.columns(3)
-        min_supp = rc1.slider("Min Support", float(df_rules['support'].min()), float(df_rules['support'].max()), float(df_rules['support'].min()))
-        min_conf = rc2.slider("Min Confidence", float(df_rules['confidence'].min()), float(df_rules['confidence'].max()), float(df_rules['confidence'].min()))
-        min_lift = rc3.slider("Min Lift", float(df_rules['lift'].min()), float(df_rules['lift'].max()), float(df_rules['lift'].min()))
-        
-        antecedent_filter = st.text_input("Filter by Antecedent Product / StockCode (leave blank for all):")
-        
-        filtered_rules = df_rules[
-            (df_rules['support'] >= min_supp) & 
-            (df_rules['confidence'] >= min_conf) & 
-            (df_rules['lift'] >= min_lift)
-        ]
-        
+
+        supp_min = float(active_rules["support"].min())
+        supp_max = float(active_rules["support"].max())
+        conf_min = float(active_rules["confidence"].min())
+        conf_max = float(active_rules["confidence"].max())
+        lift_min = float(active_rules["lift"].min())
+        lift_max = float(active_rules["lift"].max())
+
+        if supp_min == supp_max:
+            min_supp = supp_min
+            rc1.metric("Min Support", f"{min_supp:.4f}")
+        else:
+            min_supp = rc1.slider(
+                "Min Support",
+                supp_min,
+                supp_max,
+                supp_min,
+                key=f"rules_min_support_{selected_country}"
+            )
+
+        if conf_min == conf_max:
+            min_conf = conf_min
+            rc2.metric("Min Confidence", f"{min_conf:.2f}")
+        else:
+            min_conf = rc2.slider(
+                "Min Confidence",
+                conf_min,
+                conf_max,
+                conf_min,
+                key=f"rules_min_confidence_{selected_country}"
+            )
+
+        if lift_min == lift_max:
+            min_lift = lift_min
+            rc3.metric("Min Lift", f"{min_lift:.2f}")
+        else:
+            min_lift = rc3.slider(
+                "Min Lift",
+                lift_min,
+                lift_max,
+                lift_min,
+                key=f"rules_min_lift_{selected_country}"
+            )
+
+        antecedent_filter = st.text_input(
+            "Filter by Antecedent Product / StockCode (leave blank for all):",
+            key=f"antecedent_filter_{selected_country}"
+        )
+
+        filtered_rules = active_rules[
+            (active_rules["support"] >= min_supp)
+            & (active_rules["confidence"] >= min_conf)
+            & (active_rules["lift"] >= min_lift)
+        ].copy()
+
         if antecedent_filter:
-            filtered_rules = filtered_rules[
-                filtered_rules["antecedents_display"].str.contains(antecedent_filter, case=False, na=False) |
-                filtered_rules["antecedents_desc"].str.contains(antecedent_filter, case=False, na=False) |
-                filtered_rules["antecedents_str"].str.contains(antecedent_filter, case=False, na=False)
+            filter_cols = [
+                col for col in [
+                    "antecedents_display",
+                    "antecedents_desc",
+                    "antecedents_str"
+                ]
+                if col in filtered_rules.columns
             ]
+
+            if filter_cols:
+                mask = False
+                for col in filter_cols:
+                    mask = mask | filtered_rules[col].astype(str).str.contains(
+                        antecedent_filter,
+                        case=False,
+                        na=False
+                    )
+                filtered_rules = filtered_rules[mask]
 
         if filtered_rules.empty:
             st.warning("No rules match the current filters.")
         else:
-            fig_scatter = px.scatter(
-                    filtered_rules,
-                    x='support',
-                    y='confidence',
-                    color='lift',
-                    hover_data=['rule_desc', 'rule_display', 'support', 'confidence', 'lift'],
-                    title="Support vs Confidence (Colored by Lift)",
-                    color_continuous_scale='sunsetdark'
-                )
-            fig_scatter.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig_scatter, use_container_width=True)
-            
-            display_cols = [
-                "rule_desc",
-                "rule_display",
-                "support",
-                "confidence",
-                "lift",
-                "leverage",
-                "conviction"
+            hover_cols = [
+                col for col in [
+                    "rule_desc",
+                    "rule_display",
+                    "support",
+                    "confidence",
+                    "lift"
+                ]
+                if col in filtered_rules.columns
             ]
 
-            available_cols = [c for c in display_cols if c in filtered_rules.columns]
+            fig_scatter = px.scatter(
+                filtered_rules,
+                x="support",
+                y="confidence",
+                color="lift",
+                hover_data=hover_cols,
+                title=f"Support vs Confidence Colored by Lift - {selected_country}"
+            )
+
+            fig_scatter.update_layout(
+                template="plotly_dark",
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)"
+            )
+
+            st.plotly_chart(fig_scatter, use_container_width=True)
+
+            available_cols = [
+                col for col in [
+                    "rule_desc",
+                    "rule_display",
+                    "support",
+                    "confidence",
+                    "lift",
+                    "leverage",
+                    "conviction"
+                ]
+                if col in filtered_rules.columns
+            ]
 
             st.dataframe(
                 filtered_rules[available_cols]
-                .sort_values('lift', ascending=False)
+                .sort_values("lift", ascending=False)
                 .head(50),
                 use_container_width=True
             )
-            best_rule = filtered_rules.sort_values('lift', ascending=False).iloc[0]
+
+            best_rule = filtered_rules.sort_values("lift", ascending=False).iloc[0]
+
             st.markdown(f"""
             <div class="insight-box">
-                <b>💡 Auto-Insight:</b> The strongest rule currently filtered is <b>{best_rule['rule_desc']}</b>.<br>
-                This rule has a lift of <b>{best_rule['lift']:.2f}</b>, meaning the consequent is {best_rule['lift']:.2f} times more likely to be bought when the antecedent is in the basket.
-                The confidence is <b>{best_rule['confidence']:.1%}</b> (percentage of antecedent buyers who also buy the consequent).
+                <b>Auto-Insight:</b> The strongest rule for <b>{selected_country}</b> is 
+                <b>{best_rule['rule_desc']}</b>.<br>
+                Lift = <b>{best_rule['lift']:.2f}</b>, 
+                confidence = <b>{best_rule['confidence']:.1%}</b>, 
+                support = <b>{best_rule['support']:.4f}</b>.<br>
+                This is an association pattern, not causal proof.
             </div>
             """, unsafe_allow_html=True)
 
 # ------------------------------------------
 # TAB 3: BUNDLE RECOMMENDATION
 # ------------------------------------------
+# ------------------------------------------
+# TAB 3: BUNDLE RECOMMENDATION
+# ------------------------------------------
 with tabs[2]:
     st.header("Bundle Recommendation for Product Team")
     st.markdown("Translate strong association rules into actionable business strategies.")
-    
-    if df_top20.empty:
-        st.warning("Top 20 rules dataset not found.")
+
+    st.caption(
+        f"Current output mode: {active_outputs['mode']} | "
+        f"Selected country: {selected_country} | "
+        f"Status: {active_outputs['status']}"
+    )
+
+    if active_top20.empty:
+        st.warning(active_outputs["message"])
     else:
-        # Just display as nice cards or a stylized table
-        for idx, row in df_top20.head(10).iterrows():
-            action = "Create Bundle Promotion" if row['lift'] > 10 else "Add to 'Frequently Bought Together'"
-            if row['confidence'] > 0.7:
+        top_bundle_rules = (
+            active_top20
+            .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
+            .head(10)
+            .reset_index(drop=True)
+        )
+
+        for idx, row in top_bundle_rules.iterrows():
+            if row["confidence"] >= 0.70:
                 action = "Recommend consequent at Checkout"
+            elif row["lift"] > 10:
+                action = "Create Bundle Promotion"
+            else:
+                action = "Add to Frequently Bought Together"
+
+            antecedent_text = row.get("antecedents_display", row.get("antecedents_str", ""))
+            consequent_text = row.get("consequents_display", row.get("consequents_str", ""))
 
             st.markdown(f"""
             <div class="glass-card" style="padding: 15px;">
-                <h4 style="color:#f4a460; margin-bottom:5px;">Bundle Idea {idx+1}: {row['rule_desc']}</h4>
-                <b>Antecedent:</b> {row['antecedents_display']} <br>
-                <b>Recommended (Consequent):</b> {row['consequents_display']} <br>
-                <span style="color:#A0A0A0;">Support: {row['support']:.4f} | Confidence: {row['confidence']:.2%} | Lift: {row['lift']:.2f}</span><br>
+                <h4 style="color:#f4a460; margin-bottom:5px;">
+                    Bundle Idea {idx + 1}: {row['rule_desc']}
+                </h4>
+                <b>Antecedent:</b> {antecedent_text}<br>
+                <b>Recommended Consequent:</b> {consequent_text}<br>
+                <span style="color:#A0A0A0;">
+                    Support: {row['support']:.4f} | 
+                    Confidence: {row['confidence']:.2%} | 
+                    Lift: {row['lift']:.2f}
+                </span><br>
                 <b style="color:#50C878;">Suggested Action:</b> {action}
             </div>
             """, unsafe_allow_html=True)
@@ -1506,92 +1714,198 @@ with tabs[2]:
 # ------------------------------------------
 # TAB 4: ALGORITHM RESULTS
 # ------------------------------------------
+# ------------------------------------------
+# TAB 4: ALGORITHM RESULTS
+# ------------------------------------------
 with tabs[3]:
     st.header("Algorithm Results & Comparison")
-    
-    has_algo_files = not df_alg_runtime.empty or (not df_apr_freq.empty and not df_fp_freq.empty)
-    
-    if has_algo_files:
-        st.success("Optional algorithm outputs found. Displaying Apriori vs FP-Growth comparison.")
-        if not df_alg_runtime.empty:
-            fig_rt = px.bar(df_alg_runtime, x='Algorithm', y='Runtime_Seconds', title="Runtime Comparison", color='Algorithm')
-            fig_rt.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig_rt, use_container_width=True)
-                            # Show speed-up metric
-            if {"Algorithm", "Runtime_Seconds"}.issubset(df_alg_runtime.columns):
-                apr_time = df_alg_runtime.loc[
-                    df_alg_runtime["Algorithm"] == "Apriori", 
-                    "Runtime_Seconds"
-                ]
 
-                fp_time = df_alg_runtime.loc[
-                    df_alg_runtime["Algorithm"] == "FP-Growth", 
-                    "Runtime_Seconds"
-                ]
+    st.caption(
+        f"Current output mode: {active_outputs['mode']} | "
+        f"Selected country: {selected_country} | "
+        f"Status: {active_outputs['status']}"
+    )
 
-                if not apr_time.empty and not fp_time.empty and fp_time.iloc[0] > 0:
-                    speedup = apr_time.iloc[0] / fp_time.iloc[0]
-                    st.metric(
-                        "FP-Growth Speed-up vs Apriori",
-                        f"{speedup:.1f}x faster"
-                    )
-            
-        c1, c2 = st.columns(2)
-        with c1:
-            if not df_apr_freq.empty:
-                st.metric("Apriori Frequent Itemsets", len(df_apr_freq))
-        with c2:
-            if not df_fp_freq.empty:
-                st.metric("FP-Growth Frequent Itemsets", len(df_fp_freq))
+    has_algo_outputs = (
+        not active_alg_runtime.empty
+        or not active_apr_freq.empty
+        or not active_fp_freq.empty
+    )
+
+    if not has_algo_outputs:
+        st.warning(active_outputs["message"])
     else:
-        st.info("Separate Apriori/FP-Growth outputs not found. Only final association rules are displayed.")
-        if not df_rules.empty:
-            st.markdown("### Final Rule Mining Setup")
-            st.markdown("- **Algorithm:** Apriori / FP-Growth based association rule mining")
-            st.markdown(f"- **Total Strong Rules:** {len(df_rules)}")
-            st.markdown(f"- **Max Lift:** {df_rules['lift'].max():.2f}")
-            st.markdown(f"- **Average Lift:** {df_rules['lift'].mean():.2f}")
+        st.success("Displaying Apriori vs FP-Growth comparison for current selection.")
 
+        if not active_alg_runtime.empty:
+            st.markdown("### Runtime Summary")
+            st.dataframe(active_alg_runtime, use_container_width=True)
+
+            if {"Algorithm", "Runtime_Seconds"}.issubset(active_alg_runtime.columns):
+                runtime_for_chart = active_alg_runtime.dropna(subset=["Runtime_Seconds"]).copy()
+
+                if not runtime_for_chart.empty:
+                    fig_rt = px.bar(
+                        runtime_for_chart,
+                        x="Algorithm",
+                        y="Runtime_Seconds",
+                        title=f"Runtime Comparison - {selected_country}",
+                        color="Algorithm"
+                    )
+
+                    fig_rt.update_layout(
+                        template="plotly_dark",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)"
+                    )
+
+                    st.plotly_chart(fig_rt, use_container_width=True)
+
+                apr_time = active_alg_runtime.loc[
+                    active_alg_runtime["Algorithm"] == "Apriori",
+                    "Runtime_Seconds"
+                ]
+
+                fp_time = active_alg_runtime.loc[
+                    active_alg_runtime["Algorithm"] == "FP-Growth",
+                    "Runtime_Seconds"
+                ]
+
+                if (
+                    not apr_time.empty
+                    and not fp_time.empty
+                    and pd.notna(apr_time.iloc[0])
+                    and pd.notna(fp_time.iloc[0])
+                    and fp_time.iloc[0] > 0
+                ):
+                    speedup = apr_time.iloc[0] / fp_time.iloc[0]
+                    st.metric("FP-Growth Speed-up vs Apriori", f"{speedup:.1f}x faster")
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+            st.metric("Apriori Frequent Itemsets", f"{len(active_apr_freq):,}")
+
+            if not active_apr_freq.empty:
+                display_apr = active_apr_freq.copy()
+
+                if "itemsets_str" not in display_apr.columns and "itemsets" in display_apr.columns:
+                    display_apr["itemsets_str"] = display_apr["itemsets"].apply(itemset_to_text)
+
+                cols = [col for col in ["itemsets_str", "itemset_size", "support"] if col in display_apr.columns]
+                st.dataframe(
+                    display_apr.sort_values("support", ascending=False)[cols].head(10),
+                    use_container_width=True
+                )
+
+        with c2:
+            st.metric("FP-Growth Frequent Itemsets", f"{len(active_fp_freq):,}")
+
+            if not active_fp_freq.empty:
+                display_fp = active_fp_freq.copy()
+
+                if "itemsets_str" not in display_fp.columns and "itemsets" in display_fp.columns:
+                    display_fp["itemsets_str"] = display_fp["itemsets"].apply(itemset_to_text)
+
+                cols = [col for col in ["itemsets_str", "itemset_size", "support"] if col in display_fp.columns]
+                st.dataframe(
+                    display_fp.sort_values("support", ascending=False)[cols].head(10),
+                    use_container_width=True
+                )
+# ------------------------------------------
+# TAB 5: AOV / ADD-TO-CART SIMULATOR
+# ------------------------------------------
 # ------------------------------------------
 # TAB 5: AOV / ADD-TO-CART SIMULATOR
 # ------------------------------------------
 with tabs[4]:
     st.header("Add-to-Cart / Revenue Simulator")
-    st.markdown("*\"This simulator is scenario-based estimation, not causal proof.\"*")
-    
-    if df_rules.empty:
-        st.warning("Rules data required for simulation.")
+    st.markdown("*This simulator is scenario-based estimation, not causal proof.*")
+
+    st.caption(
+        f"Current output mode: {active_outputs['mode']} | "
+        f"Selected country: {selected_country} | "
+        f"Status: {active_outputs['status']}"
+    )
+
+    if active_rules.empty:
+        st.warning(active_outputs["message"])
     else:
         s1, s2 = st.columns([1, 2])
+
         with s1:
             st.markdown("### Parameters")
-            rule_options = df_rules.sort_values("lift", ascending=False).head(50).copy()
+
+            rule_options = (
+                active_rules
+                .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
+                .head(50)
+                .copy()
+            )
 
             selected_rule_idx = st.selectbox(
                 "Select Rule to Simulate",
                 options=rule_options.index,
-                format_func=lambda i: rule_options.loc[i, "rule_desc"]
+                format_func=lambda i: rule_options.loc[i, "rule_desc"],
+                key=f"sim_rule_select_{selected_country}"
             )
-            target_customers = st.number_input("Target Customers (Antecedent buyers)", min_value=100, max_value=100000, value=1000, step=100)
-            conversion_rate = st.slider("Expected Conversion Rate", 0.01, 1.0, 0.05, 0.01)
-            expected_aov = st.number_input("Expected AOV of Consequent (£)", min_value=1.0, max_value=500.0, value=15.0)
-            discount_rate = st.slider("Discount Rate Applied", 0.0, 0.5, 0.1, 0.05)
-            campaign_cost = st.number_input("Campaign Setup Cost (£)", value=100.0)
-            
+
+            target_customers = st.number_input(
+                "Target Customers (Antecedent buyers)",
+                min_value=100,
+                max_value=100000,
+                value=1000,
+                step=100,
+                key=f"sim_target_customers_{selected_country}"
+            )
+
+            conversion_rate = st.slider(
+                "Expected Conversion Rate",
+                0.01,
+                1.0,
+                0.05,
+                0.01,
+                key=f"sim_conversion_rate_{selected_country}"
+            )
+
+            expected_aov = st.number_input(
+                "Expected AOV of Consequent (£)",
+                min_value=1.0,
+                max_value=500.0,
+                value=15.0,
+                key=f"sim_expected_aov_{selected_country}"
+            )
+
+            discount_rate = st.slider(
+                "Discount Rate Applied",
+                0.0,
+                0.5,
+                0.1,
+                0.05,
+                key=f"sim_discount_rate_{selected_country}"
+            )
+
+            campaign_cost = st.number_input(
+                "Campaign Setup Cost (£)",
+                value=100.0,
+                key=f"sim_campaign_cost_{selected_country}"
+            )
+
         with s2:
-            # Logic
             rule_data = rule_options.loc[selected_rule_idx]
-            conf = rule_data['confidence']
-            
+            conf = rule_data["confidence"]
+
             est_add_to_cart = target_customers * conf
             est_converted = round(est_add_to_cart * conversion_rate)
             gross_revenue = est_converted * expected_aov
             discount_cost = gross_revenue * discount_rate
             net_revenue = gross_revenue - discount_cost - campaign_cost
-            
+
             st.markdown("### Simulation Results")
             st.markdown(f"""
             <div class="glass-card">
+                <p><b>Selected country:</b> {selected_country}</p>
+                <p><b>Selected rule:</b> {rule_data['rule_desc']}</p>
                 <p>Rule Confidence: <b>{conf:.2%}</b></p>
                 <p>Estimated Add-to-Carts: <b>{est_add_to_cart:.0f}</b></p>
                 <p>Estimated Converted Orders: <b>{est_converted:.0f}</b></p>
@@ -1599,10 +1913,14 @@ with tabs[4]:
                 <p>Gross Revenue: <b style='color:#50C878;'>£{gross_revenue:,.2f}</b></p>
                 <p>Discount Cost: <b style='color:#FF6347;'>-£{discount_cost:,.2f}</b></p>
                 <p>Campaign Cost: <b style='color:#FF6347;'>-£{campaign_cost:,.2f}</b></p>
-                <h3>Estimated Net Revenue: <span style='color: {"#50C878" if net_revenue > 0 else "#FF6347"};'>£{net_revenue:,.2f}</span></h3>
+                <h3>
+                    Estimated Net Revenue: 
+                    <span style='color: {"#50C878" if net_revenue > 0 else "#FF6347"};'>
+                        £{net_revenue:,.2f}
+                    </span>
+                </h3>
             </div>
             """, unsafe_allow_html=True)
-
 # ------------------------------------------
 # TAB 6: MODEL RESULTS / REGRESSION IMPACT
 # ------------------------------------------
