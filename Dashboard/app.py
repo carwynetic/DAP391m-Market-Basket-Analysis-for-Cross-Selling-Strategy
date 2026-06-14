@@ -910,6 +910,30 @@ def run_uploaded_ols_regression_models(df):
 
     return pd.DataFrame(results), errors
 
+
+
+# ==========================================
+# REGRESSION OUTPUT EXPORT HELPERS
+# ==========================================
+
+def prepare_regression_dataset_for_download(df):
+    if df.empty:
+        return df
+
+    export_df = df.copy()
+
+    if "parsed_items" in export_df.columns:
+        export_df["parsed_items"] = export_df["parsed_items"].apply(
+            lambda x: ", ".join([str(i) for i in x]) if isinstance(x, list) else str(x)
+        )
+
+    return export_df
+
+
+
+
+
+
 # ==========================================
 # 3. SIDEBAR
 # ==========================================
@@ -2585,6 +2609,124 @@ with tabs[8]:
                                 <b>Next stage:</b> add regression output downloads and final interpretation card.
                             </div>
                             """, unsafe_allow_html=True)
+                # ==========================================
+                # STAGE 7: DOWNLOAD REGRESSION OUTPUTS + FINAL CARD
+                # ==========================================
+
+                st.markdown("---")
+                st.subheader("Download Regression Outputs")
+
+                if "uploaded_regression_results_df" not in st.session_state:
+                    st.info("Run OLS regression models first before downloading regression outputs.")
+                else:
+                    regression_results_export = st.session_state["uploaded_regression_results_df"].copy()
+                    regression_cleaned_export = prepare_regression_dataset_for_download(
+                        st.session_state["regression_cleaned_df"]
+                    )
+                    regression_rule_applied_export = prepare_regression_dataset_for_download(
+                        st.session_state["regression_rule_applied_df"]
+                    )
+
+                    d1, d2, d3 = st.columns(3)
+
+                    with d1:
+                        st.download_button(
+                            label="Download Regression Results CSV",
+                            data=convert_df_to_csv_bytes(regression_results_export),
+                            file_name="uploaded_regression_results.csv",
+                            mime="text/csv"
+                        )
+
+                    with d2:
+                        st.download_button(
+                            label="Download Cleaned Regression Dataset CSV",
+                            data=convert_df_to_csv_bytes(regression_cleaned_export),
+                            file_name="uploaded_regression_cleaned_dataset.csv",
+                            mime="text/csv"
+                        )
+
+                    with d3:
+                        st.download_button(
+                            label="Download Rule Applied Dataset CSV",
+                            data=convert_df_to_csv_bytes(regression_rule_applied_export),
+                            file_name="uploaded_rule_applied_dataset.csv",
+                            mime="text/csv"
+                        )
+
+                    st.markdown("---")
+                    st.subheader("Final Regression Interpretation Card")
+
+                    rule_applied_stats = st.session_state["regression_rule_applied_stats"]
+
+                    baseline_model = regression_results_export[
+                        regression_results_export["Model"].str.contains("Model 1A", case=False, na=False)
+                    ]
+
+                    final_model = regression_results_export[
+                        regression_results_export["Model"].str.contains("Model 5A", case=False, na=False)
+                    ]
+
+                    if baseline_model.empty or final_model.empty:
+                        st.warning("Baseline model or final controlled model is missing.")
+                    else:
+                        baseline_row = baseline_model.iloc[0]
+                        final_row = final_model.iloc[0]
+
+                        baseline_coef = baseline_row["Rule_Coefficient"]
+                        baseline_pvalue = baseline_row["Rule_P_Value"]
+
+                        final_coef = final_row["Rule_Coefficient"]
+                        final_pvalue = final_row["Rule_P_Value"]
+                        final_r2 = final_row["R_Squared"]
+                        final_n = int(final_row["N_Observations"])
+
+                        if baseline_pvalue < 0.05 and final_pvalue >= 0.05:
+                            final_interpretation = (
+                                "The selected rule shows a statistically significant raw association in the baseline model, "
+                                "but the effect disappears after adding basket-level controls. "
+                                "This means the observed revenue difference is likely explained by BasketSize, AvgUnitPrice, "
+                                "TotalQuantity, and Country rather than the rule itself."
+                            )
+                        elif final_pvalue < 0.05:
+                            final_interpretation = (
+                                "The selected rule remains statistically significant after controls. "
+                                "This suggests the rule is still associated with ProductRevenue after accounting for basket-level factors."
+                            )
+                        else:
+                            final_interpretation = (
+                                "The selected rule is not statistically significant in the final controlled model. "
+                                "There is not enough evidence that rule_applied has an independent association with ProductRevenue after controls."
+                            )
+
+                        st.markdown(f"""
+                        <div class="insight-box">
+                            <h4>Final Regression Result</h4>
+
+                            <b>Selected Rule:</b> {", ".join(rule_applied_stats["antecedent_codes"])} → {", ".join(rule_applied_stats["consequent_codes"])}<br>
+                            <b>Rule Applied Baskets:</b> {rule_applied_stats["applied_count"]:,}<br>
+                            <b>Rule Not Applied Baskets:</b> {rule_applied_stats["not_applied_count"]:,}<br>
+                            <b>Applied Rate:</b> {rule_applied_stats["applied_rate"]:.2%}<br><br>
+
+                            <b>Baseline Model Coefficient:</b> {baseline_coef:.4f}<br>
+                            <b>Baseline Model p-value:</b> {baseline_pvalue:.4f}<br><br>
+
+                            <b>Final Controlled Model Coefficient:</b> {final_coef:.4f}<br>
+                            <b>Final Controlled Model p-value:</b> {final_pvalue:.4f}<br>
+                            <b>Final Controlled Model R-squared:</b> {final_r2:.4f}<br>
+                            <b>Observations:</b> {final_n:,}<br><br>
+
+                            <b>Interpretation:</b> {final_interpretation}<br><br>
+
+                            <b>Important Note:</b> This regression is an observational robustness check, not causal proof.
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        st.markdown("""
+                        <div class="insight-box">
+                            <b>Status:</b> Regression output downloads and final interpretation card completed.<br>
+                            <b>Step 2 completed:</b> uploaded regression-ready dataset can now run rule_applied creation, outlier treatment, OLS models, interpretation, and downloadable outputs.
+                        </div>
+                        """, unsafe_allow_html=True)
 
         except Exception as e:
             st.error(f"Could not read uploaded regression CSV file: {e}")
