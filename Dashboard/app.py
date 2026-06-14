@@ -4619,112 +4619,67 @@ def render_floating_project_assistant(
     country_mba_outputs=None,
     country_model_outputs=None
 ):
-    if FLOAT_CHATBOX_AVAILABLE:
-        float_init()
-
-    if "project_ai_messages" not in st.session_state:
-        st.session_state.project_ai_messages = [
-            {
-                "role": "assistant",
-                "content": "Tôi có thể trả lời nhanh về dataset, rules, model, country filter, mục tiêu web, và thành viên nhóm."
-            }
-        ]
-
-    context = build_dashboard_context_text(
-        selected_country=selected_country,
-        country_filter_audit=country_filter_audit,
-        country_mba_outputs=country_mba_outputs,
-        country_model_outputs=country_model_outputs
-    )
-
-    def submit_project_ai_question():
-        user_question = st.session_state.get("project_ai_input", "").strip()
-
-        if user_question:
-            answer = answer_project_assistant(user_question, context)
-
-            st.session_state.project_ai_messages.append({
-                "role": "user",
-                "content": user_question
-            })
-
-            st.session_state.project_ai_messages.append({
-                "role": "assistant",
-                "content": answer
-            })
-
-    def clear_project_ai_chat():
-        st.session_state.project_ai_messages = [
-            {
-                "role": "assistant",
-                "content": "Chat đã được reset. Hỏi lại về dashboard, dataset, rule mining hoặc regression."
-            }
-        ]
-
-    with st.container():
-        st.markdown(
-            """
-            <style>
-            div[data-testid="stPopover"] button {
-                width: 56px !important;
-                height: 56px !important;
-                min-width: 56px !important;
-                min-height: 56px !important;
-                border-radius: 999px !important;
-                font-size: 24px !important;
-                padding: 0 !important;
-                background: #111827 !important;
-                border: 1px solid rgba(255,255,255,0.24) !important;
-                box-shadow: 0 12px 32px rgba(0,0,0,0.45) !important;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-
-        with st.popover("🤖", help="Open Project Assistant"):
-            st.markdown("### 🤖 Project Assistant")
-            st.caption(f"Current context: {context['country']}")
-
-            chat_history_box = st.container(height=260)
-
-            with chat_history_box:
-                for msg in st.session_state.project_ai_messages[-8:]:
-                    if msg["role"] == "user":
-                        st.markdown(f"**You:** {msg['content']}")
-                    else:
-                        st.markdown(f"**Assistant:** {msg['content']}")
-
-            with st.form("project_ai_form", clear_on_submit=True):
-                st.text_input(
-                    "Ask about this dashboard",
-                    placeholder="Ví dụ: top rule của quốc gia này là gì?",
-                    key="project_ai_input"
-                )
-
-                st.form_submit_button(
-                    "Send",
-                    on_click=submit_project_ai_question
-                )
-
-            st.button(
-                "Clear chat",
-                key="project_ai_clear",
-                on_click=clear_project_ai_chat
-            )
-
-        if FLOAT_CHATBOX_AVAILABLE:
-            float_parent(
-                css="""
-                position: fixed;
-                bottom: 78px;
-                right: 24px;
-                width: 64px;
-                height: 64px;
-                z-index: 999999;
-                background: transparent;
-                border: none;
-                padding: 0;
-                box-shadow: none;
+    if not st.session_state.project_ai_open:
+        with st.container():
+            st.markdown(
                 """
+                <style>
+                .st-key-project_ai_open_button {
+                    width: 56px !important;
+                    height: 56px !important;
+                }
+
+                .st-key-project_ai_open_button button {
+                    width: 56px !important;
+                    height: 56px !important;
+                    min-width: 56px !important;
+                    min-height: 56px !important;
+                    border-radius: 999px !important;
+                    padding: 0 !important;
+
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+
+                    font-size: 24px !important;
+                    line-height: 1 !important;
+
+                    background: #111827 !important;
+                    border: 1px solid rgba(255,255,255,0.24) !important;
+                    box-shadow: 0 12px 32px rgba(0,0,0,0.45) !important;
+                }
+
+                .st-key-project_ai_open_button button p {
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    line-height: 1 !important;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True
             )
+
+            if st.button(
+                "🤖",
+                key="project_ai_open_button",
+                help="Open AI Assistant"
+            ):
+                st.session_state.project_ai_open = True
+                st.rerun()
+
+            if FLOAT_CHATBOX_AVAILABLE:
+                float_parent(
+                    css="""
+                    position: fixed;
+                    bottom: 24px;
+                    right: 24px;
+                    width: 56px;
+                    height: 56px;
+                    z-index: 999999;
+                    background: transparent;
+                    border: none;
+                    padding: 0;
+                    box-shadow: none;
+                    overflow: visible;
+                    """
+                )
