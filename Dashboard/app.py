@@ -1734,230 +1734,234 @@ with tabs[7]:
                                 """, unsafe_allow_html=True)
                     
                     # ==========================================
+                    # ==========================================
                     # STAGE 6: VISUAL CHARTS + DOWNLOAD OUTPUTS
                     # ==========================================
 
-                    st.markdown("---")
-                    st.subheader("Uploaded Dataset Rule Visualizations")
+                    if "uploaded_rules" in st.session_state:
+                        uploaded_rules = st.session_state["uploaded_rules"]
+                        uploaded_strong_rules = st.session_state["uploaded_strong_rules"]
 
-                    rules_for_viz = uploaded_strong_rules.copy()
+                        st.markdown("---")
+                        st.subheader("Uploaded Dataset Rule Visualizations")
 
-                    if rules_for_viz.empty:
-                        rules_for_viz = uploaded_rules.copy()
+                        rules_for_viz = uploaded_strong_rules.copy()
 
-                    if rules_for_viz.empty:
-                        st.warning("No rules available for visualization.")
-                    else:
-                        rules_for_viz = rules_for_viz.sort_values(
-                            ["lift", "confidence", "support"],
-                            ascending=[False, False, False]
-                        )
+                        if rules_for_viz.empty:
+                            rules_for_viz = uploaded_rules.copy()
 
-                        top_rules_viz = rules_for_viz.head(20).copy()
-
-                        top_rules_viz["rule_short"] = top_rules_viz["rule_desc"].apply(
-                            lambda x: x[:90] + "..." if len(str(x)) > 90 else str(x)
-                        )
-
-                        chart_col1, chart_col2 = st.columns(2)
-
-                        with chart_col1:
-                            fig_top_lift_uploaded = px.bar(
-                                top_rules_viz.sort_values("lift", ascending=True),
-                                x="lift",
-                                y="rule_short",
-                                orientation="h",
-                                title="Top 20 Uploaded Rules by Lift",
-                                hover_data=["rule_desc", "support", "confidence", "lift"]
+                        if rules_for_viz.empty:
+                            st.warning("No rules available for visualization.")
+                        else:
+                            rules_for_viz = rules_for_viz.sort_values(
+                                ["lift", "confidence", "support"],
+                                ascending=[False, False, False]
                             )
 
-                            fig_top_lift_uploaded.update_layout(
-                                template="plotly_dark",
-                                plot_bgcolor="rgba(0,0,0,0)",
-                                paper_bgcolor="rgba(0,0,0,0)",
-                                yaxis_title="Rule",
-                                xaxis_title="Lift",
-                                height=700
+                            top_rules_viz = rules_for_viz.head(20).copy()
+
+                            top_rules_viz["rule_short"] = top_rules_viz["rule_desc"].apply(
+                                lambda x: x[:90] + "..." if len(str(x)) > 90 else str(x)
                             )
 
-                            st.plotly_chart(fig_top_lift_uploaded, use_container_width=True)
+                            chart_col1, chart_col2 = st.columns(2)
 
-                        with chart_col2:
-                            fig_scatter_uploaded = px.scatter(
-                                rules_for_viz,
-                                x="support",
-                                y="confidence",
-                                color="lift",
-                                size="lift",
-                                hover_data=["rule_desc", "support", "confidence", "lift"],
-                                title="Uploaded Rules: Support vs Confidence Colored by Lift",
-                                color_continuous_scale="sunsetdark"
-                            )
-
-                            fig_scatter_uploaded.update_layout(
-                                template="plotly_dark",
-                                plot_bgcolor="rgba(0,0,0,0)",
-                                paper_bgcolor="rgba(0,0,0,0)",
-                                xaxis_title="Support",
-                                yaxis_title="Confidence"
-                            )
-
-                            st.plotly_chart(fig_scatter_uploaded, use_container_width=True)
-
-                        fig_conf_uploaded = px.histogram(
-                            rules_for_viz,
-                            x="confidence",
-                            nbins=20,
-                            title="Uploaded Rules Confidence Distribution"
-                        )
-
-                        fig_conf_uploaded.update_layout(
-                            template="plotly_dark",
-                            plot_bgcolor="rgba(0,0,0,0)",
-                            paper_bgcolor="rgba(0,0,0,0)",
-                            xaxis_title="Confidence",
-                            yaxis_title="Number of Rules"
-                        )
-
-                        st.plotly_chart(fig_conf_uploaded, use_container_width=True)
-
-
-                    st.markdown("---")
-                    st.subheader("Download Uploaded Dataset Outputs")
-
-                    uploaded_rules_export = prepare_rules_for_download(uploaded_rules)
-                    uploaded_strong_rules_export = prepare_rules_for_download(uploaded_strong_rules)
-
-                    if uploaded_strong_rules.empty:
-                        uploaded_top20_export = (
-                            uploaded_rules_export
-                            .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
-                            .head(20)
-                        )
-                    else:
-                        uploaded_top20_export = (
-                            uploaded_strong_rules_export
-                            .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
-                            .head(20)
-                        )
-
-                    download_col1, download_col2, download_col3 = st.columns(3)
-
-                    with download_col1:
-                        st.download_button(
-                            label="Download All Uploaded Rules CSV",
-                            data=convert_df_to_csv_bytes(uploaded_rules_export),
-                            file_name="uploaded_association_rules_all.csv",
-                            mime="text/csv"
-                        )
-
-                    with download_col2:
-                        st.download_button(
-                            label="Download Strong Uploaded Rules CSV",
-                            data=convert_df_to_csv_bytes(uploaded_strong_rules_export),
-                            file_name="uploaded_association_rules_strong.csv",
-                            mime="text/csv"
-                        )
-
-                    with download_col3:
-                        st.download_button(
-                            label="Download Top 20 Uploaded Rules CSV",
-                            data=convert_df_to_csv_bytes(uploaded_top20_export),
-                            file_name="uploaded_top_20_association_rules.csv",
-                            mime="text/csv"
-                        )
-
-                    if "runtime_summary_uploaded" in st.session_state:
-                        runtime_summary_uploaded_export = st.session_state["runtime_summary_uploaded"]
-
-                        st.download_button(
-                            label="Download Uploaded Algorithm Runtime CSV",
-                            data=convert_df_to_csv_bytes(runtime_summary_uploaded_export),
-                            file_name="uploaded_algorithm_runtime_summary.csv",
-                            mime="text/csv"
-                        )
-
-                    st.markdown(f"""
-                    <div class="insight-box">
-                        <b>Status:</b> Visual charts and downloadable outputs completed.<br>
-                        <b>Downloadable files:</b> all rules, strong rules, top 20 rules, and runtime summary.<br>
-                        <b>Stage 6 completed.</b>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # ==========================================
-                    # STAGE 7: BUSINESS RECOMMENDATION CARDS
-                    # ==========================================
-
-                    st.markdown("---")
-                    st.subheader("Uploaded Dataset Business Recommendations")
-
-                    recommendation_rules = uploaded_strong_rules.copy()
-
-                    if recommendation_rules.empty:
-                        recommendation_rules = uploaded_rules.copy()
-
-                    if recommendation_rules.empty:
-                        st.warning("No rules available for business recommendation.")
-                    else:
-                        recommendation_rules = (
-                            recommendation_rules
-                            .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
-                            .head(10)
-                            .reset_index(drop=True)
-                        )
-
-                        st.markdown(
-                            "These recommendation cards translate uploaded-dataset association rules into candidate cross-selling actions."
-                        )
-
-                        for rec_no, row in recommendation_rules.iterrows():
-                            support = row["support"]
-                            confidence = row["confidence"]
-                            lift = row["lift"]
-
-                            if confidence >= 0.80 and lift >= 5:
-                                action = "Recommend consequent at checkout"
-                                priority = "High Priority"
-                            elif lift >= 5:
-                                action = "Create bundle promotion"
-                                priority = "Medium Priority"
-                            elif confidence >= 0.60:
-                                action = "Add to Frequently Bought Together"
-                                priority = "Medium Priority"
-                            else:
-                                action = "Monitor as weak recommendation candidate"
-                                priority = "Low Priority"
-
-                            with st.container(border=True):
-                                st.markdown(f"### Recommendation {rec_no + 1}: {priority}")
-
-                                st.markdown(f"**Rule:** {row['rule_desc']}")
-                                st.markdown(f"**Full Rule Display:** {row['rule_display']}")
-
-                                c1, c2, c3 = st.columns(3)
-                                c1.metric("Support", f"{support:.4f}")
-                                c2.metric("Confidence", f"{confidence:.2%}")
-                                c3.metric("Lift", f"{lift:.2f}")
-
-                                st.markdown(f"**Suggested Action:** {action}")
-                                st.caption(
-                                    "This recommendation is based on association rule mining from the uploaded dataset. "
-                                    "It is a cross-selling hypothesis, not causal proof."
+                            with chart_col1:
+                                fig_top_lift_uploaded = px.bar(
+                                    top_rules_viz.sort_values("lift", ascending=True),
+                                    x="lift",
+                                    y="rule_short",
+                                    orientation="h",
+                                    title="Top 20 Uploaded Rules by Lift",
+                                    hover_data=["rule_desc", "support", "confidence", "lift"]
                                 )
+
+                                fig_top_lift_uploaded.update_layout(
+                                    template="plotly_dark",
+                                    plot_bgcolor="rgba(0,0,0,0)",
+                                    paper_bgcolor="rgba(0,0,0,0)",
+                                    yaxis_title="Rule",
+                                    xaxis_title="Lift",
+                                    height=700
+                                )
+
+                                st.plotly_chart(fig_top_lift_uploaded, use_container_width=True)
+
+                            with chart_col2:
+                                fig_scatter_uploaded = px.scatter(
+                                    rules_for_viz,
+                                    x="support",
+                                    y="confidence",
+                                    color="lift",
+                                    size="lift",
+                                    hover_data=["rule_desc", "support", "confidence", "lift"],
+                                    title="Uploaded Rules: Support vs Confidence Colored by Lift",
+                                    color_continuous_scale="sunsetdark"
+                                )
+
+                                fig_scatter_uploaded.update_layout(
+                                    template="plotly_dark",
+                                    plot_bgcolor="rgba(0,0,0,0)",
+                                    paper_bgcolor="rgba(0,0,0,0)",
+                                    xaxis_title="Support",
+                                    yaxis_title="Confidence"
+                                )
+
+                                st.plotly_chart(fig_scatter_uploaded, use_container_width=True)
+
+                            fig_conf_uploaded = px.histogram(
+                                rules_for_viz,
+                                x="confidence",
+                                nbins=20,
+                                title="Uploaded Rules Confidence Distribution"
+                            )
+
+                            fig_conf_uploaded.update_layout(
+                                template="plotly_dark",
+                                plot_bgcolor="rgba(0,0,0,0)",
+                                paper_bgcolor="rgba(0,0,0,0)",
+                                xaxis_title="Confidence",
+                                yaxis_title="Number of Rules"
+                            )
+
+                            st.plotly_chart(fig_conf_uploaded, use_container_width=True)
+
+
+                        st.markdown("---")
+                        st.subheader("Download Uploaded Dataset Outputs")
+
+                        uploaded_rules_export = prepare_rules_for_download(uploaded_rules)
+                        uploaded_strong_rules_export = prepare_rules_for_download(uploaded_strong_rules)
+
+                        if uploaded_strong_rules.empty:
+                            uploaded_top20_export = (
+                                uploaded_rules_export
+                                .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
+                                .head(20)
+                            )
+                        else:
+                            uploaded_top20_export = (
+                                uploaded_strong_rules_export
+                                .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
+                                .head(20)
+                            )
+
+                        download_col1, download_col2, download_col3 = st.columns(3)
+
+                        with download_col1:
+                            st.download_button(
+                                label="Download All Uploaded Rules CSV",
+                                data=convert_df_to_csv_bytes(uploaded_rules_export),
+                                file_name="uploaded_association_rules_all.csv",
+                                mime="text/csv"
+                            )
+
+                        with download_col2:
+                            st.download_button(
+                                label="Download Strong Uploaded Rules CSV",
+                                data=convert_df_to_csv_bytes(uploaded_strong_rules_export),
+                                file_name="uploaded_association_rules_strong.csv",
+                                mime="text/csv"
+                            )
+
+                        with download_col3:
+                            st.download_button(
+                                label="Download Top 20 Uploaded Rules CSV",
+                                data=convert_df_to_csv_bytes(uploaded_top20_export),
+                                file_name="uploaded_top_20_association_rules.csv",
+                                mime="text/csv"
+                            )
+
+                        if "runtime_summary_uploaded" in st.session_state:
+                            runtime_summary_uploaded_export = st.session_state["runtime_summary_uploaded"]
+
+                            st.download_button(
+                                label="Download Uploaded Algorithm Runtime CSV",
+                                data=convert_df_to_csv_bytes(runtime_summary_uploaded_export),
+                                file_name="uploaded_algorithm_runtime_summary.csv",
+                                mime="text/csv"
+                            )
 
                         st.markdown(f"""
                         <div class="insight-box">
-                            <b>Status:</b> Business recommendation cards completed.<br>
-                            <b>Displayed recommendations:</b> {len(recommendation_rules):,}<br>
-                            <b>Step 1 completed:</b> uploaded dataset can now run Association Rule Mining and return interpretable outputs.
+                            <b>Status:</b> Visual charts and downloadable outputs completed.<br>
+                            <b>Downloadable files:</b> all rules, strong rules, top 20 rules, and runtime summary.<br>
+                            <b>Stage 6 completed.</b>
                         </div>
                         """, unsafe_allow_html=True)
-                    
+                        
+                        # ==========================================
+                        # STAGE 7: BUSINESS RECOMMENDATION CARDS
+                        # ==========================================
+
+                        st.markdown("---")
+                        st.subheader("Uploaded Dataset Business Recommendations")
+
+                        recommendation_rules = uploaded_strong_rules.copy()
+
+                        if recommendation_rules.empty:
+                            recommendation_rules = uploaded_rules.copy()
+
+                        if recommendation_rules.empty:
+                            st.warning("No rules available for business recommendation.")
+                        else:
+                            recommendation_rules = (
+                                recommendation_rules
+                                .sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
+                                .head(10)
+                                .reset_index(drop=True)
+                            )
+
+                            st.markdown(
+                                "These recommendation cards translate uploaded-dataset association rules into candidate cross-selling actions."
+                            )
+
+                            for rec_no, row in recommendation_rules.iterrows():
+                                support = row["support"]
+                                confidence = row["confidence"]
+                                lift = row["lift"]
+
+                                if confidence >= 0.80 and lift >= 5:
+                                    action = "Recommend consequent at checkout"
+                                    priority = "High Priority"
+                                elif lift >= 5:
+                                    action = "Create bundle promotion"
+                                    priority = "Medium Priority"
+                                elif confidence >= 0.60:
+                                    action = "Add to Frequently Bought Together"
+                                    priority = "Medium Priority"
+                                else:
+                                    action = "Monitor as weak recommendation candidate"
+                                    priority = "Low Priority"
+
+                                with st.container(border=True):
+                                    st.markdown(f"### Recommendation {rec_no + 1}: {priority}")
+
+                                    st.markdown(f"**Rule:** {row['rule_desc']}")
+                                    st.markdown(f"**Full Rule Display:** {row['rule_display']}")
+
+                                    c1, c2, c3 = st.columns(3)
+                                    c1.metric("Support", f"{support:.4f}")
+                                    c2.metric("Confidence", f"{confidence:.2%}")
+                                    c3.metric("Lift", f"{lift:.2f}")
+
+                                    st.markdown(f"**Suggested Action:** {action}")
+                                    st.caption(
+                                        "This recommendation is based on association rule mining from the uploaded dataset. "
+                                        "It is a cross-selling hypothesis, not causal proof."
+                                    )
+
+                            st.markdown(f"""
+                            <div class="insight-box">
+                                <b>Status:</b> Business recommendation cards completed.<br>
+                                <b>Displayed recommendations:</b> {len(recommendation_rules):,}<br>
+                                <b>Step 1 completed:</b> uploaded dataset can now run Association Rule Mining and return interpretable outputs.
+                            </div>
+                            """, unsafe_allow_html=True)
+                        
 
                     else:
-                        st.info("Run Apriori and FP-Growth first to enable association rule generation.")
-                                                                                
+                        st.info("Generate association rules first to enable charts, downloads, and business recommendations.")                                                                     
         except Exception as e:
             st.error(f"Could not read uploaded CSV file: {e}")
 
