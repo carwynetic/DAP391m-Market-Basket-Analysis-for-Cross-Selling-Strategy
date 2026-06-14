@@ -680,7 +680,79 @@ def summarize_uploaded_regression_dataset(df):
         "avg_unit_price": df["AvgUnitPrice"].mean(),
         "unique_products_estimated": len(set(item for items in parsed_items for item in items))
     }
+# ==========================================
+# REGRESSION RULE_APPLIED FEATURE ENGINEERING
+# ==========================================
 
+def parse_rule_code_input(value):
+    if value is None:
+        return []
+
+    s = str(value).strip()
+
+    if not s:
+        return []
+
+    s = s.replace("[", "").replace("]", "")
+    s = s.replace("{", "").replace("}", "")
+    s = s.replace("'", "").replace('"', "")
+
+    return [x.strip() for x in s.split(",") if x.strip()]
+
+
+def create_rule_applied_feature(df, antecedent_codes, consequent_codes):
+    df = df.copy()
+
+    antecedent_codes = [str(x).strip() for x in antecedent_codes if str(x).strip()]
+    consequent_codes = [str(x).strip() for x in consequent_codes if str(x).strip()]
+
+    rule_items = sorted(set(antecedent_codes + consequent_codes))
+
+    if not rule_items:
+        return df, {
+            "error": "No rule items were provided."
+        }
+
+    df["parsed_items"] = df["Items"].apply(parse_items_list)
+
+    df["rule_applied"] = df["parsed_items"].apply(
+        lambda items: int(set(rule_items).issubset(set(items)))
+    )
+
+    df["antecedent_present"] = df["parsed_items"].apply(
+        lambda items: int(set(antecedent_codes).issubset(set(items)))
+    )
+
+    df["consequent_present"] = df["parsed_items"].apply(
+        lambda items: int(set(consequent_codes).issubset(set(items)))
+    )
+
+    applied_count = int(df["rule_applied"].sum())
+    not_applied_count = int(len(df) - applied_count)
+    applied_rate = applied_count / len(df) if len(df) > 0 else 0
+
+    applied_avg_revenue = (
+        df.loc[df["rule_applied"] == 1, "ProductRevenue"].mean()
+        if applied_count > 0 else 0
+    )
+
+    not_applied_avg_revenue = (
+        df.loc[df["rule_applied"] == 0, "ProductRevenue"].mean()
+        if not_applied_count > 0 else 0
+    )
+
+    stats = {
+        "antecedent_codes": antecedent_codes,
+        "consequent_codes": consequent_codes,
+        "rule_items": rule_items,
+        "applied_count": applied_count,
+        "not_applied_count": not_applied_count,
+        "applied_rate": applied_rate,
+        "applied_avg_revenue": applied_avg_revenue,
+        "not_applied_avg_revenue": not_applied_avg_revenue
+    }
+
+    return df, stats
 # ==========================================
 # 3. SIDEBAR
 # ==========================================
@@ -1860,6 +1932,163 @@ with tabs[8]:
                     <b>Next stage:</b> select a representative association rule and create the rule_applied variable.
                 </div>
                 """, unsafe_allow_html=True)
+                # ==========================================
+                # STAGE 4: CREATE rule_applied VARIABLE
+                # ==========================================
+
+                st.markdown("---")
+                st.subheader("Create rule_applied Variable")
+
+                st.markdown(
+                    "Select a representative rule. The dashboard will create `rule_applied = 1` "
+                    "when a basket contains all selected antecedent and consequent items."
+                )
+
+                rule_source = st.radio(
+                    "Rule Selection Method",
+                    options=[
+                        "Use generated representative rule",
+                        "Manual input"
+                    ],
+                    horizontal=True
+                )
+
+                if rule_source == "Use generated representative rule":
+                    antecedent_input = "22748, 22745"
+                    consequent_input = "22746"
+
+                    st.info(
+                        "Using generated representative rule: "
+                        "22748 + 22745 → 22746"
+                    )
+                else:
+                    rule_col1, rule_col2 = st.columns(2)
+
+                    with rule_col1:
+                        antecedent_input = st.text_input(
+                            "Antecedent StockCodes",
+                            value="22748, 22745",
+                            help="Example: 22748, 22745"
+                        )
+
+                    with rule_col2:
+                        consequent_input = st.text_input(
+                            "Consequent StockCodes",
+                            value="22746",
+                            help="Example: 22746"
+                        )
+
+                create_rule_button = st.button("Create rule_applied Feature")
+
+                if create_rule_button:
+                    antecedent_codes = parse_rule_code_input(antecedent_input)
+                    consequent_codes = parse_rule_code_input(consequent_input)
+
+                    rule_applied_df, rule_applied_stats = create_rule_applied_feature(
+                        validated_regression_df,
+                        antecedent_codes,
+                        consequent_codes
+                    )
+
+                    if "error" in rule_applied_stats:
+                        st.error(rule_applied_stats["error"])
+                    else:
+                        st.session_state["regression_rule_applied_df"] = rule_applied_df
+                        st.session_state["regression_rule_applied_stats"] = rule_applied_stats
+
+                if "regression_rule_applied_df" in st.session_state:
+                    rule_applied_df = st.session_state["regression_rule_applied_df"]
+                    rule_applied_stats = st.session_state["regression_rule_applied_stats"]
+
+                    st.success("rule_applied feature created successfully.")
+
+                    a1, a2, a3, a4 = st.columns(4)
+                    a1.metric("Rule Applied Baskets", f"{rule_applied_stats['applied_count']:,}")
+                    a2.metric("Rule Not Applied Baskets", f"{rule_applied_stats['not_applied_count']:,}")
+                    a3.metric("Applied Rate", f"{rule_applied_stats['applied_rate']:.2%}")
+                    a4.metric("Rule Items", f"{len(rule_applied_stats['rule_items'])}")
+
+                    b1, b2 = st.columns(2)
+                    b1.metric("Avg Revenue - Applied", f"£{rule_applied_stats['applied_avg_revenue']:.2f}")
+                    b2.metric("Avg Revenue - Not Applied", f"£{rule_applied_stats['not_applied_avg_revenue']:.2f}")
+
+                    st.markdown("### Selected Rule")
+
+                    selected_rule_df = pd.DataFrame({
+                        "Part": ["Antecedent", "Consequent", "All Rule Items"],
+                        "StockCodes": [
+                            ", ".join(rule_applied_stats["antecedent_codes"]),
+                            ", ".join(rule_applied_stats["consequent_codes"]),
+                            ", ".join(rule_applied_stats["rule_items"])
+                        ]
+                    })
+
+                    st.dataframe(selected_rule_df, use_container_width=True)
+
+                    st.markdown("### rule_applied Distribution")
+
+                    rule_applied_summary = (
+                        rule_applied_df["rule_applied"]
+                        .value_counts()
+                        .reset_index()
+                    )
+                    rule_applied_summary.columns = ["rule_applied", "Basket_Count"]
+
+                    st.dataframe(rule_applied_summary, use_container_width=True)
+
+                    fig_rule_applied = px.bar(
+                        rule_applied_summary,
+                        x="rule_applied",
+                        y="Basket_Count",
+                        title="rule_applied Distribution"
+                    )
+
+                    fig_rule_applied.update_layout(
+                        template="plotly_dark",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        xaxis_title="rule_applied",
+                        yaxis_title="Basket Count"
+                    )
+
+                    st.plotly_chart(fig_rule_applied, use_container_width=True)
+
+                    st.markdown("### Preview Rows with rule_applied")
+
+                    preview_cols = [
+                        "InvoiceNo",
+                        "Items",
+                        "BasketSize",
+                        "ProductRevenue",
+                        "TotalQuantity",
+                        "AvgUnitPrice",
+                        "Country",
+                        "rule_applied",
+                        "antecedent_present",
+                        "consequent_present"
+                    ]
+
+                    available_preview_cols = [
+                        col for col in preview_cols
+                        if col in rule_applied_df.columns
+                    ]
+
+                    st.dataframe(
+                        rule_applied_df[available_preview_cols].head(50),
+                        use_container_width=True
+                    )
+
+                    if rule_applied_stats["applied_count"] < 10:
+                        st.warning(
+                            "Very few baskets have rule_applied = 1. Regression may be unstable."
+                        )
+
+                    st.markdown("""
+                    <div class="insight-box">
+                        <b>Status:</b> rule_applied feature created successfully.<br>
+                        <b>Next stage:</b> remove outliers before running OLS regression models.
+                    </div>
+                    """, unsafe_allow_html=True)
 
         except Exception as e:
             st.error(f"Could not read uploaded regression CSV file: {e}")
