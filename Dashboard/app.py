@@ -1009,7 +1009,229 @@ def build_country_basket_source(df_baskets, selected_country):
     }
 
     return df_country_usable, summary
+# ==========================================
+# COUNTRY-SPECIFIC MBA PIPELINE
+# ==========================================
 
+COUNTRY_ARM_MIN_BASKETS = 100
+COUNTRY_ARM_MIN_SUPPORT = 0.01
+COUNTRY_ARM_RULE_MIN_CONFIDENCE = 0.10
+COUNTRY_ARM_STRONG_MIN_CONFIDENCE = 0.40
+COUNTRY_ARM_STRONG_MIN_LIFT = 3.00
+COUNTRY_ARM_MAX_LEN = 3
+COUNTRY_APRIORI_MAX_BASKETS = 8000
+
+
+def itemset_to_text(itemset):
+    if pd.isna(itemset):
+        return ""
+
+    try:
+        return " + ".join(sorted([str(x) for x in list(itemset)]))
+    except Exception:
+        return str(itemset)
+
+
+def add_rule_display_columns(rules_df):
+    if rules_df.empty:
+        return rules_df
+
+    rules_df = rules_df.copy()
+
+    rules_df["antecedents_str"] = rules_df["antecedents"].apply(itemset_to_text)
+    rules_df["consequents_str"] = rules_df["consequents"].apply(itemset_to_text)
+
+    rules_df["rule_desc"] = (
+        rules_df["antecedents_str"]
+        + " → "
+        + rules_df["consequents_str"]
+    )
+
+    rules_df["rule_display"] = rules_df["rule_desc"]
+
+    return rules_df
+
+
+def prepare_country_transactions(df_country):
+    if df_country.empty:
+        return []
+
+    if "ItemsParsed" not in df_country.columns:
+        df_country = df_country.copy()
+        df_country["ItemsParsed"] = df_country["Items"].apply(parse_country_basket_items)
+
+    transactions = []
+
+    for items in df_country["ItemsParsed"]:
+        clean_items = sorted(set([str(x).strip() for x in items if str(x).strip()]))
+
+        if len(clean_items) >= 2:
+            transactions.append(clean_items)
+
+    return transactions
+
+
+@st.cache_data(show_spinner=False)
+def run_country_mba_pipeline_cached(
+    selected_country,
+    df_country,
+    min_support=COUNTRY_ARM_MIN_SUPPORT,
+    rule_min_confidence=COUNTRY_ARM_RULE_MIN_CONFIDENCE,
+    strong_min_confidence=COUNTRY_ARM_STRONG_MIN_CONFIDENCE,
+    strong_min_lift=COUNTRY_ARM_STRONG_MIN_LIFT,
+    max_len=COUNTRY_ARM_MAX_LEN
+):
+    transactions = prepare_country_transactions(df_country)
+
+    output = {
+        "selected_country": selected_country,
+        "status": "not_started",
+        "message": "",
+        "transactions": len(transactions),
+        "transaction_matrix_shape": (0, 0),
+        "apriori_itemsets": pd.DataFrame(),
+        "fpgrowth_itemsets": pd.DataFrame(),
+        "rules": pd.DataFrame(),
+        "strong_rules": pd.DataFrame(),
+        "top_20_rules": pd.DataFrame(),
+        "runtime_summary": pd.DataFrame()
+    }
+
+    if len(transactions) < COUNTRY_ARM_MIN_BASKETS:
+        output["status"] = "not_enough_baskets"
+        output["message"] = (
+            f"Only {len(transactions):,} usable baskets found. "
+            f"Minimum required for country-specific mining is {COUNTRY_ARM_MIN_BASKETS:,}."
+        )
+        return output
+
+    te = TransactionEncoder()
+    encoded_array = te.fit(transactions).transform(transactions)
+
+    transaction_matrix = pd.DataFrame(
+        encoded_array,
+        columns=te.columns_
+    )
+
+    output["transaction_matrix_shape"] = transaction_matrix.shape
+
+    runtime_records = []
+
+    apriori_itemsets = pd.DataFrame()
+
+    if len(transactions) <= COUNTRY_APRIORI_MAX_BASKETS:
+        start_time = time.time()
+
+        apriori_itemsets = apriori(
+            transaction_matrix,
+            min_support=min_support,
+            use_colnames=True,
+            max_len=max_len
+        )
+
+        apriori_runtime = time.time() - start_time
+
+        if not apriori_itemsets.empty:
+            apriori_itemsets["itemset_size"] = apriori_itemsets["itemsets"].apply(len)
+            apriori_itemsets["itemsets_str"] = apriori_itemsets["itemsets"].apply(itemset_to_text)
+
+        runtime_records.append({
+            "Algorithm": "Apriori",
+            "Runtime_Seconds": round(apriori_runtime, 4),
+            "Frequent_Itemsets": len(apriori_itemsets),
+            "Status": "Completed"
+        })
+    else:
+        runtime_records.append({
+            "Algorithm": "Apriori",
+            "Runtime_Seconds": np.nan,
+            "Frequent_Itemsets": 0,
+            "Status": f"Skipped: baskets > {COUNTRY_APRIORI_MAX_BASKETS:,}"
+        })
+
+    start_time = time.time()
+
+    fpgrowth_itemsets = fpgrowth(
+        transaction_matrix,
+        min_support=min_support,
+        use_colnames=True,
+        max_len=max_len
+    )
+
+    fpgrowth_runtime = time.time() - start_time
+
+    if not fpgrowth_itemsets.empty:
+        fpgrowth_itemsets["itemset_size"] = fpgrowth_itemsets["itemsets"].apply(len)
+        fpgrowth_itemsets["itemsets_str"] = fpgrowth_itemsets["itemsets"].apply(itemset_to_text)
+
+    runtime_records.append({
+        "Algorithm": "FP-Growth",
+        "Runtime_Seconds": round(fpgrowth_runtime, 4),
+        "Frequent_Itemsets": len(fpgrowth_itemsets),
+        "Status": "Completed"
+    })
+
+    runtime_summary = pd.DataFrame(runtime_records)
+
+    if fpgrowth_itemsets.empty:
+        output["status"] = "no_frequent_itemsets"
+        output["message"] = "No frequent itemsets found for this country and support threshold."
+        output["apriori_itemsets"] = apriori_itemsets
+        output["fpgrowth_itemsets"] = fpgrowth_itemsets
+        output["runtime_summary"] = runtime_summary
+        return output
+
+    try:
+        rules = association_rules(
+            fpgrowth_itemsets,
+            metric="confidence",
+            min_threshold=rule_min_confidence
+        )
+    except Exception as e:
+        output["status"] = "rule_generation_failed"
+        output["message"] = f"Association rule generation failed: {e}"
+        output["apriori_itemsets"] = apriori_itemsets
+        output["fpgrowth_itemsets"] = fpgrowth_itemsets
+        output["runtime_summary"] = runtime_summary
+        return output
+
+    if rules.empty:
+        output["status"] = "no_rules"
+        output["message"] = "Frequent itemsets were found, but no association rules met the confidence threshold."
+        output["apriori_itemsets"] = apriori_itemsets
+        output["fpgrowth_itemsets"] = fpgrowth_itemsets
+        output["runtime_summary"] = runtime_summary
+        return output
+
+    rules = add_rule_display_columns(rules)
+
+    rules = rules.sort_values(
+        ["lift", "confidence", "support"],
+        ascending=[False, False, False]
+    ).reset_index(drop=True)
+
+    strong_rules = rules[
+        (rules["confidence"] >= strong_min_confidence)
+        & (rules["lift"] >= strong_min_lift)
+    ].copy()
+
+    strong_rules = strong_rules.sort_values(
+        ["lift", "confidence", "support"],
+        ascending=[False, False, False]
+    ).reset_index(drop=True)
+
+    top_20_rules = strong_rules.head(20).copy()
+
+    output["status"] = "completed"
+    output["message"] = "Country-specific MBA pipeline completed successfully."
+    output["apriori_itemsets"] = apriori_itemsets
+    output["fpgrowth_itemsets"] = fpgrowth_itemsets
+    output["rules"] = rules
+    output["strong_rules"] = strong_rules
+    output["top_20_rules"] = top_20_rules
+    output["runtime_summary"] = runtime_summary
+
+    return output
 
 # ==========================================
 # 3. SIDEBAR
@@ -1058,7 +1280,45 @@ with st.sidebar.expander("Country Filter Audit"):
     st.markdown(f"**Unique products:** {country_filter_audit['unique_products']:,}")
     st.markdown(f"**Avg basket size:** {country_filter_audit['avg_basket_size']:.2f}")
     st.markdown(f"**Total revenue:** £{country_filter_audit['total_revenue']:,.2f}")
+# ==========================================
+# COUNTRY-SPECIFIC MBA OUTPUTS
+# ==========================================
 
+country_mba_outputs = None
+
+if selected_country != "All":
+    with st.spinner(f"Running country-specific MBA pipeline for {selected_country}..."):
+        country_mba_outputs = run_country_mba_pipeline_cached(
+            selected_country=selected_country,
+            df_country=df_baskets_country
+        )
+
+    st.session_state["country_mba_outputs"] = country_mba_outputs
+else:
+    st.session_state["country_mba_outputs"] = None
+
+with st.sidebar.expander("Country ARM Pipeline Audit"):
+    if selected_country == "All":
+        st.markdown("**Mode:** Global precomputed outputs")
+        st.markdown("Country-specific ARM is only triggered when a country is selected.")
+    else:
+        country_mba_outputs = st.session_state.get("country_mba_outputs")
+
+        if country_mba_outputs is None:
+            st.markdown("No country-specific ARM output available.")
+        else:
+            st.markdown(f"**Country:** {country_mba_outputs['selected_country']}")
+            st.markdown(f"**Status:** {country_mba_outputs['status']}")
+            st.markdown(f"**Message:** {country_mba_outputs['message']}")
+            st.markdown(f"**Transactions:** {country_mba_outputs['transactions']:,}")
+
+            matrix_rows, matrix_cols = country_mba_outputs["transaction_matrix_shape"]
+            st.markdown(f"**Transaction matrix:** {matrix_rows:,} × {matrix_cols:,}")
+
+            st.markdown(f"**Apriori itemsets:** {len(country_mba_outputs['apriori_itemsets']):,}")
+            st.markdown(f"**FP-Growth itemsets:** {len(country_mba_outputs['fpgrowth_itemsets']):,}")
+            st.markdown(f"**Generated rules:** {len(country_mba_outputs['rules']):,}")
+            st.markdown(f"**Strong rules:** {len(country_mba_outputs['strong_rules']):,}")
 # ==========================================
 # 4. TABS SETUP
 # ==========================================
