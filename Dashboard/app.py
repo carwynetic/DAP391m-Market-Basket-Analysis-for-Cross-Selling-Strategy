@@ -16,6 +16,7 @@ from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import apriori, fpgrowth, association_rules
 
 import time
+import unicodedata
 import statsmodels.formula.api as smf
 # ==========================================
 # 1. PAGE CONFIG & CUSTOM CSS
@@ -1740,115 +1741,395 @@ def explain_current_tab(context):
         "Tab context hiện tại chưa được chọn rõ. "
         "Hãy chọn Tab context trong Project Assistant trước khi hỏi về tab hiện tại."
     )
+PROJECT_TITLE = "Market Basket Analysis for Cross-Selling Strategy using Online Retail II Dataset"
 
-def answer_project_assistant(user_question, context):
-    q = user_question.lower().strip()
+PROJECT_DATASET_DESCRIPTION = (
+    "Online Retail II basket-level dataset after data cleaning and transaction construction. "
+    "Each basket represents one invoice/transaction and contains purchased product items, basket size, "
+    "product revenue, total quantity, customer/country information, and derived features used for "
+    "association rule mining and regression-based robustness checking."
+)
 
-    if not q:
-        return "Nhập câu hỏi về dashboard, dataset, rule mining, regression, hoặc mục tiêu project."
-    if any(phrase in q for phrase in [
-        "tab này",
-        "trang này",
-        "màn hình này",
-        "đang xem gì",
-        "giải thích tab",
-        "giải thích trang",
-        "kết luận tab",
-        "kết luận trang"
-    ]):
-        return explain_current_tab(context)
+PROJECT_OBJECTIVE = (
+    "The dashboard is built to discover product co-occurrence patterns, identify high-lift association rules, "
+    "support cross-selling or bundle recommendation decisions, compare Apriori and FP-Growth performance, "
+    "simulate add-to-cart revenue scenarios, and check whether selected rule effects remain robust after "
+    "basket-level regression controls."
+)
 
-    if any(word in q for word in ["mục đích", "purpose", "web này", "dashboard này", "project này", "làm gì"]):
+PROJECT_RESEARCH_QUESTIONS = [
+    "RQ1: Which basket association rules have the highest lift values while still meeting minimum support and confidence thresholds?",
+    "RQ2: Which product categories show the strongest cross-selling potential based on co-occurrence and category-level lift?"
+]
+
+PROJECT_MEMBERS = [
+    # Điền thành viên thật của nhóm vào đây nếu muốn chatbox trả lời được.
+    # Ví dụ:
+    # "Nguyen Van A - Data preprocessing",
+    # "Tran Van B - Dashboard development",
+    # "Le Van C - Report writing",
+]
+
+
+def assistant_normalize_text(text):
+    text = str(text or "").lower().strip()
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    return text
+
+
+def assistant_format_number(value, decimals=2, default="N/A"):
+    try:
+        if value is None:
+            return default
+        if isinstance(value, str):
+            clean_value = value.replace(",", "").replace("£", "").replace("%", "").strip()
+            if clean_value in ["", "N/A", "None", "nan"]:
+                return default
+            value = float(clean_value)
+
+        if decimals == 0:
+            return f"{float(value):,.0f}"
+        return f"{float(value):,.{decimals}f}"
+    except Exception:
+        return default
+
+
+def assistant_format_currency(value, default="N/A"):
+    formatted = assistant_format_number(value, 2, default=None)
+    if formatted is None:
+        return default
+    return f"£{formatted}"
+
+
+def assistant_format_percent(value, default="N/A"):
+    try:
+        if value is None:
+            return default
+
+        if isinstance(value, str):
+            if "%" in value:
+                return value.strip()
+            clean_value = value.replace(",", "").strip()
+            if clean_value in ["", "N/A", "None", "nan"]:
+                return default
+            value = float(clean_value)
+
+        value = float(value)
+        if value <= 1:
+            value *= 100
+
+        return f"{value:.2f}%"
+    except Exception:
+        return default
+
+
+def assistant_get_members_text():
+    if not PROJECT_MEMBERS:
+        return "Không đủ dữ liệu để xác minh thành viên nhóm. Cần khai báo PROJECT_MEMBERS trong app.py."
+    return "\n".join([f"- {member}" for member in PROJECT_MEMBERS])
+
+
+def assistant_country_summary(context):
+    country = context.get("country", "All")
+    status = context.get("status", "N/A")
+    message = context.get("message", "N/A")
+
+    return (
+        f"Country đang chọn: {country}\n\n"
+        f"Basket rows: {assistant_format_number(context.get('basket_rows'), 0)}\n"
+        f"Usable baskets: {assistant_format_number(context.get('usable_baskets'), 0)}\n"
+        f"Unique products: {assistant_format_number(context.get('unique_products'), 0)}\n"
+        f"Avg basket size: {assistant_format_number(context.get('avg_basket_size'), 2)}\n"
+        f"Total revenue: {assistant_format_currency(context.get('total_revenue'))}\n\n"
+        f"Pipeline status: {status}\n"
+        f"Message: {message}"
+    )
+
+
+def assistant_top_rule_summary(context):
+    top_rule = context.get("top_rule", "N/A")
+
+    if not top_rule or top_rule == "N/A":
         return (
-            f"Project: {PROJECT_KNOWLEDGE['project_name']}\n\n"
-            f"Mục đích: {PROJECT_KNOWLEDGE['purpose']}"
-        )
-
-    if any(word in q for word in ["dataset", "data", "dữ liệu", "online retail"]):
-        return (
-            f"Dataset: {PROJECT_KNOWLEDGE['dataset']}\n\n"
-            f"Country đang chọn: {context['country']}\n"
-            f"Basket rows: {context['basket_rows']}\n"
-            f"Usable baskets: {context['usable_baskets']}\n"
-            f"Unique products: {context['unique_products']}\n"
-            f"Avg basket size: {_format_number(context['avg_basket_size'], 2)}\n"
-            f"Total revenue: {_format_number(context['total_revenue'], 2)}"
-        )
-
-    if any(word in q for word in ["thành viên", "member", "team", "nhóm"]):
-        members = PROJECT_KNOWLEDGE.get("team_members", [])
-        return "Thành viên nhóm:\n" + "\n".join([f"- {m}" for m in members])
-
-    if any(word in q for word in ["rq", "research question", "câu hỏi nghiên cứu"]):
-        return "Research Questions:\n" + "\n".join([f"- {rq}" for rq in PROJECT_KNOWLEDGE["research_questions"]])
-
-    if any(word in q for word in ["country", "quốc gia", "đang chọn", "selected"]):
-        return (
-            f"Country đang chọn: {context['country']}\n"
-            f"Pipeline status: {context['status']}\n"
-            f"Message: {context['message']}"
-        )
-
-    if any(word in q for word in ["rule", "association", "lift", "confidence", "support", "luật"]):
-        return (
-            f"Rule mining summary cho {context['country']}:\n\n"
-            f"Generated rules: {context['generated_rules']}\n"
-            f"Strong rules: {context['strong_rules']}\n\n"
-            f"Top rule: {context['top_rule']}\n"
-            f"Support: {context['top_support']}\n"
-            f"Confidence: {context['top_confidence']}\n"
-            f"Lift: {context['top_lift']}\n\n"
-            f"Lưu ý: Association rule là pattern đồng xuất hiện, không phải bằng chứng nhân quả."
-        )
-
-    if any(word in q for word in ["apriori", "fp-growth", "fpgrowth", "algorithm", "thuật toán", "runtime"]):
-        speedup_text = "N/A"
-        try:
-            if context["speedup"] != "N/A":
-                speedup_text = f"{float(context['speedup']):.2f}x"
-        except Exception:
-            pass
-
-        return (
-            f"Algorithm comparison cho {context['country']}:\n\n"
-            f"Apriori runtime: {context['apriori_runtime']}\n"
-            f"FP-Growth runtime: {context['fpgrowth_runtime']}\n"
-            f"FP-Growth speed-up: {speedup_text}\n\n"
-            f"Nếu hai thuật toán trả về cùng số frequent itemsets, khác biệt chính nằm ở thời gian chạy."
-        )
-
-    if any(word in q for word in ["regression", "model", "ols", "p-value", "r-squared", "hồi quy"]):
-        return (
-            f"Regression summary cho {context['country']}:\n\n"
-            f"{context['regression_summary']}\n\n"
-            f"Lưu ý: Regression section là robustness check quan sát, không phải causal proof."
-        )
-
-    if any(word in q for word in ["tab", "chức năng", "hướng dẫn", "dùng sao"]):
-        return (
-            "Các tab chính:\n"
-            "- Executive Overview: tổng quan basket, revenue, product frequency.\n"
-            "- Rules Explorer: lọc và xem association rules theo support, confidence, lift.\n"
-            "- Bundle Recommendation: chuyển strong rules thành gợi ý cross-selling/bundle.\n"
-            "- Algorithm Results: so sánh Apriori và FP-Growth.\n"
-            "- Add-to-Cart Simulator: mô phỏng doanh thu theo kịch bản cross-sell.\n"
-            "- Model Results: kiểm tra robustness bằng regression.\n"
-            "- Final Conclusion: tổng hợp kết quả cuối cùng."
+            "Không có top rule khả dụng cho selection hiện tại.\n\n"
+            f"Pipeline status: {context.get('status', 'N/A')}\n"
+            f"Message: {context.get('message', 'N/A')}"
         )
 
     return (
-        "Không nhận diện được ý hỏi.\n\n"
-        "Các nhóm câu hỏi đang hỗ trợ:\n"
-        "- Dataset / dữ liệu\n"
-        "- Top rule / support / confidence / lift\n"
-        "- Quốc gia đang chọn\n"
-        "- Apriori / FP-Growth / runtime\n"
-        "- Regression / OLS / p-value / R-squared\n"
-        "- Mục đích dashboard\n"
-        "- Thành viên nhóm\n"
-        "- Chức năng từng tab"
+        f"Top rule hiện tại:\n{top_rule}\n\n"
+        f"Support: {assistant_format_number(context.get('top_support'), 4)}\n"
+        f"Confidence: {assistant_format_percent(context.get('top_confidence'))}\n"
+        f"Lift: {assistant_format_number(context.get('top_lift'), 2)}\n\n"
+        "Ý nghĩa: đây là pattern đồng xuất hiện trong giỏ hàng. Rule có lift cao cho thấy consequent xuất hiện cùng antecedent nhiều hơn mức kỳ vọng ngẫu nhiên. "
+        "Không được diễn giải là bằng chứng nhân quả."
     )
 
+
+def assistant_algorithm_summary(context):
+    speedup = context.get("speedup", "N/A")
+    try:
+        speedup_text = f"{float(speedup):.2f}x"
+    except Exception:
+        speedup_text = "N/A"
+
+    return (
+        "Apriori và FP-Growth đều dùng để khai thác frequent itemsets cho association rule mining.\n\n"
+        "Apriori tạo candidate itemsets theo từng mức độ dài, dễ hiểu nhưng có thể chậm khi dữ liệu lớn.\n"
+        "FP-Growth nén dữ liệu vào FP-tree và khai thác frequent patterns mà không cần sinh quá nhiều candidates.\n\n"
+        f"Apriori runtime: {assistant_format_number(context.get('apriori_runtime'), 4)} seconds\n"
+        f"FP-Growth runtime: {assistant_format_number(context.get('fpgrowth_runtime'), 4)} seconds\n"
+        f"FP-Growth speed-up: {speedup_text}"
+    )
+
+
+def assistant_regression_summary(context):
+    regression_context = context.get("regression_summary", None)
+
+    if regression_context and regression_context != "N/A":
+        return (
+            f"{regression_context}\n\n"
+            "Diễn giải: regression ở dashboard này là robustness check quan sát. "
+            "Nếu rule coefficient không còn significant sau khi thêm controls, thì revenue difference có thể được giải thích bởi basket-level factors thay vì bản thân rule."
+        )
+
+    return (
+        "Không có regression context khả dụng cho selection hiện tại.\n\n"
+        f"Country: {context.get('country', 'N/A')}\n"
+        f"Pipeline status: {context.get('status', 'N/A')}\n"
+        f"Message: {context.get('message', 'N/A')}\n\n"
+        "Lý do thường gặp: country đang chọn không đủ usable baskets để chạy country-specific mining/regression, hoặc regression output chưa được tạo."
+    )
+
+
+def assistant_metric_explanation():
+    return (
+        "Các metric chính trong association rule mining:\n\n"
+        "Support: tỷ lệ baskets chứa cả antecedent và consequent. Support cao nghĩa là rule xuất hiện đủ thường xuyên trong dữ liệu.\n\n"
+        "Confidence: xác suất consequent xuất hiện khi antecedent đã xuất hiện. Confidence cao nghĩa là rule có độ tin cậy điều kiện cao.\n\n"
+        "Lift: mức độ consequent xuất hiện cùng antecedent cao hơn so với kỳ vọng ngẫu nhiên. Lift > 1 cho thấy association dương; lift càng cao thì co-occurrence càng mạnh.\n\n"
+        "Leverage và conviction là metric bổ sung để đánh giá độ lệch khỏi độc lập và mức độ chắc của rule."
+    )
+
+
+def assistant_capability_summary():
+    return (
+        "Tôi có thể trả lời nhanh về các phần sau:\n\n"
+        "- Dataset đang dùng\n"
+        "- Mục tiêu dashboard\n"
+        "- Research questions\n"
+        "- Thành viên nhóm nếu đã khai báo trong PROJECT_MEMBERS\n"
+        "- Country đang chọn\n"
+        "- Tab hiện tại\n"
+        "- Top association rule\n"
+        "- Support, confidence, lift\n"
+        "- Apriori vs FP-Growth\n"
+        "- Regression result\n"
+        "- Vì sao kết quả không phải causal proof"
+    )
+
+def answer_project_assistant(user_question, context):
+    q_raw = str(user_question or "").strip()
+    q = assistant_normalize_text(q_raw)
+
+    if not q:
+        return "Nhập câu hỏi về dashboard, dataset, rule mining, regression, country filter, hoặc mục tiêu project."
+
+    # Current tab explanation
+    if any(phrase in q for phrase in [
+        "tab nay",
+        "trang nay",
+        "man hinh nay",
+        "dang xem gi",
+        "giai thich tab",
+        "giai thich trang",
+        "ket luan tab",
+        "ket luan trang",
+        "current tab"
+    ]):
+        return explain_current_tab(context)
+
+    # Dataset
+    if any(phrase in q for phrase in [
+        "dataset",
+        "du lieu",
+        "data la gi",
+        "tap du lieu",
+        "online retail",
+        "du lieu dang dung"
+    ]):
+        return (
+            f"Dataset: {PROJECT_DATASET_DESCRIPTION}\n\n"
+            f"{assistant_country_summary(context)}"
+        )
+
+    # Project objective / dashboard purpose
+    if any(phrase in q for phrase in [
+        "muc tieu",
+        "project lam gi",
+        "dashboard lam gi",
+        "web lam gi",
+        "ung dung lam gi",
+        "purpose",
+        "objective"
+    ]):
+        return (
+            f"Project: {PROJECT_TITLE}\n\n"
+            f"Mục tiêu: {PROJECT_OBJECTIVE}"
+        )
+
+    # Research questions
+    if any(phrase in q for phrase in [
+        "research question",
+        "rq",
+        "cau hoi nghien cuu",
+        "nghien cuu cai gi"
+    ]):
+        return "Research questions của project:\n\n" + "\n".join(PROJECT_RESEARCH_QUESTIONS)
+
+    # Group members
+    if any(phrase in q for phrase in [
+        "thanh vien",
+        "member",
+        "nhom gom ai",
+        "ai lam",
+        "group"
+    ]):
+        return "Thành viên nhóm:\n\n" + assistant_get_members_text()
+
+    # Country / filter
+    if any(phrase in q for phrase in [
+        "country",
+        "quoc gia",
+        "dang chon",
+        "filter",
+        "nuoc nao",
+        "selection"
+    ]):
+        return assistant_country_summary(context)
+
+    # Top rule
+    if any(phrase in q for phrase in [
+        "top rule",
+        "rule cao nhat",
+        "rule manh nhat",
+        "lift cao nhat",
+        "association rule",
+        "luat ket hop",
+        "rule hien tai"
+    ]):
+        return assistant_top_rule_summary(context)
+
+    # Metrics
+    if any(phrase in q for phrase in [
+        "support",
+        "confidence",
+        "lift",
+        "leverage",
+        "conviction",
+        "metric",
+        "chi so"
+    ]):
+        return assistant_metric_explanation()
+
+    # Apriori / FP-Growth / algorithm
+    if any(phrase in q for phrase in [
+        "apriori",
+        "fp-growth",
+        "fpgrowth",
+        "fp growth",
+        "algorithm",
+        "thuat toan",
+        "runtime",
+        "frequent itemset"
+    ]):
+        return assistant_algorithm_summary(context)
+
+    # Bundle / cross-selling
+    if any(phrase in q for phrase in [
+        "bundle",
+        "cross sell",
+        "cross-selling",
+        "goi y ban cheo",
+        "ban cheo",
+        "recommendation",
+        "khuyen nghi",
+        "de xuat"
+    ]):
+        return (
+            "Bundle Recommendation dùng strong association rules để chuyển pattern đồng xuất hiện thành gợi ý hành động kinh doanh.\n\n"
+            f"{assistant_top_rule_summary(context)}\n\n"
+            "Các action thường dùng: recommend consequent at checkout, create bundle promotion, frequently-bought-together block, hoặc product placement test."
+        )
+
+    # Add-to-cart simulator
+    if any(phrase in q for phrase in [
+        "simulator",
+        "add to cart",
+        "add-to-cart",
+        "mo phong",
+        "doanh thu",
+        "revenue",
+        "conversion",
+        "aov"
+    ]):
+        return (
+            "Add-to-Cart / Revenue Simulator là phần mô phỏng doanh thu theo kịch bản cross-selling.\n\n"
+            "Nó dùng rule confidence, target customers, expected conversion rate, expected AOV, discount rate, và campaign setup cost để ước lượng gross revenue, cost, và net revenue.\n\n"
+            "Lưu ý: đây là scenario-based estimation, không phải causal proof."
+        )
+
+    # Regression / model
+    if any(phrase in q for phrase in [
+        "regression",
+        "hoi quy",
+        "model",
+        "p-value",
+        "p value",
+        "r-squared",
+        "r squared",
+        "coefficient",
+        "robustness",
+        "ols"
+    ]):
+        return assistant_regression_summary(context)
+
+    # Causal proof / causality
+    if any(phrase in q for phrase in [
+        "causal",
+        "nhan qua",
+        "nguyen nhan",
+        "chung minh",
+        "proof",
+        "co ket luan duoc khong",
+        "co chac khong"
+    ]):
+        return (
+            "Không. Dashboard này không chứng minh quan hệ nhân quả.\n\n"
+            "Association rules chỉ cho thấy pattern đồng xuất hiện trong baskets. "
+            "Regression section chỉ là observational robustness check để kiểm tra rule effect sau khi thêm basket-level controls.\n\n"
+            "Muốn kết luận causal impact cần thiết kế thực nghiệm như A/B testing hoặc causal inference phù hợp."
+        )
+
+    # Not enough baskets / no output
+    if any(phrase in q for phrase in [
+        "khong du du lieu",
+        "not enough",
+        "khong co ket qua",
+        "sao khong hien",
+        "khong chay",
+        "bi trong"
+    ]):
+        return (
+            f"Selection hiện tại:\n\n"
+            f"{assistant_country_summary(context)}\n\n"
+            "Nếu status là not_enough_baskets, dashboard không chạy country-specific mining/regression vì số usable baskets thấp hơn minimum threshold. "
+            "Khi đó nên dùng global output làm tham chiếu chung, không xem là kết quả riêng của country đó."
+        )
+
+    # Default
+    return assistant_capability_summary()
 
 def render_floating_project_assistant(
     selected_country,
@@ -2101,6 +2382,9 @@ def render_floating_project_assistant(
                     overflow-y: auto;
                     """
                 )
+
+
+    
 # ==========================================
 # 3. SIDEBAR
 # ==========================================
