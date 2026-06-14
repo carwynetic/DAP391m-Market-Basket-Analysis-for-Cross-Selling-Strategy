@@ -4727,7 +4727,7 @@ def render_floating_project_assistant(
                 float_parent(
                     css="""
                     position: fixed;
-                    bottom: 24px;
+                    bottom: 86px;
                     right: 24px;
                     width: 56px;
                     height: 56px;
