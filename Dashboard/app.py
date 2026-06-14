@@ -1757,18 +1757,67 @@ def render_floating_project_assistant(
         country_model_outputs=country_model_outputs
     )
 
-    with st.container():
-        toggle_label = "✕ Close AI Assistant" if st.session_state.project_ai_open else "🤖 Open AI Assistant"
+    # ==========================
+    # CLOSED MODE: only small icon
+    # ==========================
+    if not st.session_state.project_ai_open:
+        with st.container():
+            st.markdown(
+                """
+                <style>
+                div[data-testid="stButton"] button[kind="secondary"] {
+                    border-radius: 999px;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
 
-        if st.button(toggle_label, key="project_ai_toggle"):
-            st.session_state.project_ai_open = not st.session_state.project_ai_open
-            st.rerun()
+            if st.button(
+                "🤖",
+                key="project_ai_open_button",
+                help="Open AI Assistant"
+            ):
+                st.session_state.project_ai_open = True
+                st.rerun()
 
-        if st.session_state.project_ai_open:
+            if FLOAT_CHATBOX_AVAILABLE:
+                float_parent(
+                    css="""
+                    position: fixed;
+                    bottom: 22px;
+                    right: 22px;
+                    width: 64px;
+                    height: 64px;
+                    z-index: 999999;
+                    background: #111827;
+                    border: 1px solid rgba(255,255,255,0.22);
+                    border-radius: 999px;
+                    padding: 8px;
+                    box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    """
+                )
+
+    # ==========================
+    # OPEN MODE: full chat panel
+    # ==========================
+    else:
+        with st.container():
+            if st.button(
+                "✕ Close AI Assistant",
+                key="project_ai_close_button"
+            ):
+                st.session_state.project_ai_open = False
+                st.rerun()
+
             st.markdown("### 🤖 Project Assistant")
             st.caption(f"Current context: {context['country']}")
 
             chat_history_box = st.container(height=260)
+
             with chat_history_box:
                 for msg in st.session_state.project_ai_messages[-8:]:
                     if msg["role"] == "user":
@@ -1790,6 +1839,7 @@ def render_floating_project_assistant(
                     "role": "user",
                     "content": user_question.strip()
                 })
+
                 st.session_state.project_ai_messages.append({
                     "role": "assistant",
                     "content": answer
@@ -1806,26 +1856,24 @@ def render_floating_project_assistant(
                 ]
                 st.rerun()
 
-        if FLOAT_CHATBOX_AVAILABLE:
-            width = "420px" if st.session_state.project_ai_open else "220px"
-            height = "auto"
-
-            float_parent(
-                css=f"""
-                position: fixed;
-                bottom: 18px;
-                right: 18px;
-                width: {width};
-                height: {height};
-                z-index: 999999;
-                background: #111827;
-                border: 1px solid rgba(255,255,255,0.18);
-                border-radius: 14px;
-                padding: 12px;
-                box-shadow: 0 12px 40px rgba(0,0,0,0.45);
-                """
-            )
-
+            if FLOAT_CHATBOX_AVAILABLE:
+                float_parent(
+                    css="""
+                    position: fixed;
+                    bottom: 18px;
+                    right: 18px;
+                    width: 420px;
+                    height: 640px;
+                    max-height: calc(100vh - 36px);
+                    z-index: 999999;
+                    background: #111827;
+                    border: 1px solid rgba(255,255,255,0.18);
+                    border-radius: 14px;
+                    padding: 12px;
+                    box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+                    overflow-y: auto;
+                    """
+                )
 # ==========================================
 # 3. SIDEBAR
 # ==========================================
