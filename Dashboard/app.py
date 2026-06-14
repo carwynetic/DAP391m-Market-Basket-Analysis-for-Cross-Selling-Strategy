@@ -2698,7 +2698,7 @@ with tabs[8]:
                                 "There is not enough evidence that rule_applied has an independent association with ProductRevenue after controls."
                             )
 
-                        .
+                        
                         with st.container(border=True):
                             st.markdown("### Final Regression Result")
 
