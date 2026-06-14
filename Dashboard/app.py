@@ -1765,39 +1765,96 @@ def render_floating_project_assistant(
             st.markdown(
                 """
                 <style>
-                div[data-testid="stButton"] button[kind="secondary"] {
-                    border-radius: 999px;
+                div[data-testid="stPopover"] > button {
+                    width: 56px !important;
+                    height: 56px !important;
+                    min-width: 56px !important;
+                    min-height: 56px !important;
+                    border-radius: 999px !important;
+                    padding: 0 !important;
+
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+
+                    font-size: 24px !important;
+                    line-height: 1 !important;
+
+                    background-color: #111827 !important;
+                    border: 1px solid rgba(255,255,255,0.24) !important;
+                    box-shadow: 0 12px 32px rgba(0,0,0,0.45) !important;
+                }
+
+                div[data-testid="stPopover"] > button p {
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    line-height: 1 !important;
                 }
                 </style>
                 """,
                 unsafe_allow_html=True
             )
 
-            if st.button(
-                "🤖",
-                key="project_ai_open_button",
-                help="Open AI Assistant"
-            ):
-                st.session_state.project_ai_open = True
-                st.rerun()
+            with st.popover("🤖", help="Open Project Assistant"):
+                st.markdown("### 🤖 Project Assistant")
+                st.caption(f"Current context: {context['country']}")
+
+                chat_history_box = st.container(height=260)
+
+                with chat_history_box:
+                    for msg in st.session_state.project_ai_messages[-8:]:
+                        if msg["role"] == "user":
+                            st.markdown(f"**You:** {msg['content']}")
+                        else:
+                            st.markdown(f"**Assistant:** {msg['content']}")
+
+                with st.form("project_ai_form", clear_on_submit=True):
+                    user_question = st.text_input(
+                        "Ask about this dashboard",
+                        placeholder="Ví dụ: top rule của quốc gia này là gì?",
+                        key="project_ai_input"
+                    )
+
+                    submitted = st.form_submit_button("Send")
+
+                if submitted and user_question.strip():
+                    answer = answer_project_assistant(user_question, context)
+
+                    st.session_state.project_ai_messages.append({
+                        "role": "user",
+                        "content": user_question.strip()
+                    })
+
+                    st.session_state.project_ai_messages.append({
+                        "role": "assistant",
+                        "content": answer
+                    })
+
+                    st.rerun()
+
+                if st.button("Clear chat", key="project_ai_clear"):
+                    st.session_state.project_ai_messages = [
+                        {
+                            "role": "assistant",
+                            "content": "Chat đã được reset. Hỏi lại về dashboard, dataset, rule mining hoặc regression."
+                        }
+                    ]
+                    st.rerun()
 
             if FLOAT_CHATBOX_AVAILABLE:
                 float_parent(
                     css="""
                     position: fixed;
-                    bottom: 22px;
-                    right: 22px;
-                    width: 64px;
-                    height: 64px;
+                    bottom: 24px;
+                    right: 24px;
+                    width: 56px;
+                    height: 56px;
                     z-index: 999999;
-                    background: #111827;
-                    border: 1px solid rgba(255,255,255,0.22);
-                    border-radius: 999px;
-                    padding: 8px;
-                    box-shadow: 0 12px 40px rgba(0,0,0,0.45);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    background: transparent;
+                    border: none;
+                    padding: 0;
+                    box-shadow: none;
+                    overflow: visible;
                     """
                 )
 
