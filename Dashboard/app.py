@@ -1771,8 +1771,8 @@ def answer_project_assistant(user_question, context):
             f"Basket rows: {context['basket_rows']}\n"
             f"Usable baskets: {context['usable_baskets']}\n"
             f"Unique products: {context['unique_products']}\n"
-            f"Avg basket size: {context['avg_basket_size']}\n"
-            f"Total revenue: {context['total_revenue']}"
+            f"Avg basket size: {_format_number(context['avg_basket_size'], 2)}\n"
+            f"Total revenue: {_format_number(context['total_revenue'], 2)}"
         )
 
     if any(word in q for word in ["thành viên", "member", "team", "nhóm"]):
