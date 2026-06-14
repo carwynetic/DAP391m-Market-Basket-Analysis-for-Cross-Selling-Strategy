@@ -931,7 +931,84 @@ def prepare_regression_dataset_for_download(df):
 
 
 
+# ==========================================
+# COUNTRY-SPECIFIC DATA SOURCE HELPERS
+# ==========================================
 
+def parse_country_basket_items(value):
+    if pd.isna(value):
+        return []
+
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+
+    s = str(value).strip()
+
+    try:
+        parsed = ast.literal_eval(s)
+        if isinstance(parsed, (list, tuple, set)):
+            return [str(x).strip() for x in parsed if str(x).strip()]
+    except Exception:
+        pass
+
+    s = s.replace("[", "").replace("]", "")
+    s = s.replace("{", "").replace("}", "")
+    s = s.replace("'", "").replace('"', "")
+
+    return [x.strip() for x in s.split(",") if x.strip()]
+
+
+def filter_by_selected_country(df, selected_country):
+    if df.empty:
+        return df.copy()
+
+    if selected_country == "All":
+        return df.copy()
+
+    if "Country" not in df.columns:
+        return df.copy()
+
+    return df[df["Country"].astype(str).str.strip() == selected_country].copy()
+
+
+def build_country_basket_source(df_baskets, selected_country):
+    df_country = filter_by_selected_country(df_baskets, selected_country)
+
+    if df_country.empty:
+        return df_country, {
+            "selected_country": selected_country,
+            "basket_rows": 0,
+            "usable_baskets": 0,
+            "unique_products": 0,
+            "avg_basket_size": 0,
+            "total_revenue": 0
+        }
+
+    df_country = df_country.copy()
+
+    if "Items" in df_country.columns:
+        df_country["ItemsParsed"] = df_country["Items"].apply(parse_country_basket_items)
+        df_country["ParsedBasketSize"] = df_country["ItemsParsed"].apply(len)
+    else:
+        df_country["ItemsParsed"] = [[] for _ in range(len(df_country))]
+        df_country["ParsedBasketSize"] = 0
+
+    df_country_usable = df_country[df_country["ParsedBasketSize"] >= 2].copy()
+
+    all_items = set()
+    for items in df_country_usable["ItemsParsed"]:
+        all_items.update(items)
+
+    summary = {
+        "selected_country": selected_country,
+        "basket_rows": len(df_country),
+        "usable_baskets": len(df_country_usable),
+        "unique_products": len(all_items),
+        "avg_basket_size": df_country["BasketSize"].mean() if "BasketSize" in df_country.columns else 0,
+        "total_revenue": df_country["ProductRevenue"].sum() if "ProductRevenue" in df_country.columns else 0
+    }
+
+    return df_country_usable, summary
 
 
 # ==========================================
@@ -941,9 +1018,46 @@ st.sidebar.title("🛒 Parameters")
 st.sidebar.markdown("Use the tabs in the main panel to explore different aspects of the Market Basket Analysis.")
 
 country_filter = "All"
-if not df_baskets.empty and 'Country' in df_baskets.columns:
-    countries = ["All"] + list(df_baskets['Country'].dropna().unique())
-    country_filter = st.sidebar.selectbox("Filter Country (Overview Tab)", countries)
+
+if not df_baskets.empty and "Country" in df_baskets.columns:
+    countries = (
+        df_baskets["Country"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .sort_values()
+        .unique()
+        .tolist()
+    )
+
+    countries = ["All"] + countries
+
+    country_filter = st.sidebar.selectbox(
+        "Filter Country",
+        countries,
+        key="global_country_filter"
+    )
+else:
+    st.sidebar.warning("Country column not found in basket dataset.")
+
+# ==========================================
+# COUNTRY-SCOPED DATA USED BY DASHBOARD
+# ==========================================
+
+selected_country = country_filter
+
+df_baskets_country, country_filter_audit = build_country_basket_source(
+    df_baskets,
+    selected_country
+)
+
+with st.sidebar.expander("Country Filter Audit"):
+    st.markdown(f"**Selected country:** {country_filter_audit['selected_country']}")
+    st.markdown(f"**Basket rows:** {country_filter_audit['basket_rows']:,}")
+    st.markdown(f"**Usable baskets:** {country_filter_audit['usable_baskets']:,}")
+    st.markdown(f"**Unique products:** {country_filter_audit['unique_products']:,}")
+    st.markdown(f"**Avg basket size:** {country_filter_audit['avg_basket_size']:.2f}")
+    st.markdown(f"**Total revenue:** £{country_filter_audit['total_revenue']:,.2f}")
 
 # ==========================================
 # 4. TABS SETUP
