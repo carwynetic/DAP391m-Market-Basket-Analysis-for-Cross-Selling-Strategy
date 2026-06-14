@@ -4590,7 +4590,20 @@ with tabs[8]:
 
         except Exception as e:
             st.error(f"Could not read uploaded regression CSV file: {e}")
+assistant_model_context = country_model_outputs
 
+if selected_country == "All":
+    assistant_model_context = {
+        "status": "completed",
+        "results": global_model_results
+    }
+
+render_floating_project_assistant(
+    selected_country=selected_country,
+    country_filter_audit=country_filter_audit,
+    country_mba_outputs=active_outputs,
+    country_model_outputs=assistant_model_context
+)
 
 assistant_model_context = country_model_outputs
 
