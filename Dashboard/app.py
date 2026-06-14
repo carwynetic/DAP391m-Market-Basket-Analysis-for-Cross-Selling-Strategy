@@ -1739,7 +1739,8 @@ def render_floating_project_assistant(
     if FLOAT_CHATBOX_AVAILABLE:
         float_init()
 
-    
+    if "project_ai_open" not in st.session_state:
+        st.session_state.project_ai_open = False
 
     if "project_ai_messages" not in st.session_state:
         st.session_state.project_ai_messages = [
@@ -4661,81 +4662,3 @@ render_floating_project_assistant(
     country_model_outputs=assistant_model_context
 )
 
-assistant_model_context = country_model_outputs
-
-if selected_country == "All":
-    assistant_model_context = {
-        "status": "completed",
-        "results": global_model_results
-    }
-
-def render_floating_project_assistant(
-    selected_country,
-    country_filter_audit=None,
-    country_mba_outputs=None,
-    country_model_outputs=None
-):
-    if not st.session_state.project_ai_open:
-        with st.container():
-            st.markdown(
-                """
-                <style>
-                .st-key-project_ai_open_button {
-                    width: 56px !important;
-                    height: 56px !important;
-                }
-
-                .st-key-project_ai_open_button button {
-                    width: 56px !important;
-                    height: 56px !important;
-                    min-width: 56px !important;
-                    min-height: 56px !important;
-                    border-radius: 999px !important;
-                    padding: 0 !important;
-
-                    display: flex !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-
-                    font-size: 24px !important;
-                    line-height: 1 !important;
-
-                    background: #111827 !important;
-                    border: 1px solid rgba(255,255,255,0.24) !important;
-                    box-shadow: 0 12px 32px rgba(0,0,0,0.45) !important;
-                }
-
-                .st-key-project_ai_open_button button p {
-                    margin: 0 !important;
-                    padding: 0 !important;
-                    line-height: 1 !important;
-                }
-                </style>
-                """,
-                unsafe_allow_html=True
-            )
-
-            if st.button(
-                "🤖",
-                key="project_ai_open_button",
-                help="Open AI Assistant"
-            ):
-                st.session_state.project_ai_open = True
-                st.rerun()
-
-            if FLOAT_CHATBOX_AVAILABLE:
-                float_parent(
-                    css="""
-                    position: fixed;
-                    bottom: 86px;
-                    right: 24px;
-                    width: 56px;
-                    height: 56px;
-                    z-index: 999999;
-                    background: transparent;
-                    border: none;
-                    padding: 0;
-                    box-shadow: none;
-                    overflow: visible;
-                    """
-                )
