@@ -1768,9 +1768,9 @@ PROJECT_RESEARCH_QUESTIONS = [
 PROJECT_MEMBERS = [
     # Điền thành viên thật của nhóm vào đây nếu muốn chatbox trả lời được.
     # Ví dụ:
-    # "Nguyen Van A - Data preprocessing",
-    # "Tran Van B - Dashboard development",
-    # "Le Van C - Report writing",
+    "Nguyen Doan Bao Phuc - Regression Analysis and Dashboard Development",
+    "Vu Duc Thuan - Data Analysis and Association Rule Mining",
+    "Dinh Nhat Hoang An - Data Visualization and Report Writing",
 ]
 
 
