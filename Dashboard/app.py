@@ -1,6 +1,12 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+try:
+    from streamlit_float import float_init, float_parent
+    FLOAT_CHATBOX_AVAILABLE = True
+except Exception:
+    FLOAT_CHATBOX_AVAILABLE = False
+    
 import plotly.express as px
 import plotly.graph_objects as go
 import os
@@ -1471,6 +1477,355 @@ def run_country_regression_pipeline(df_country, top_rule_row, selected_country):
     output["model_dataset"] = df_model
 
     return output
+
+# =========================================================
+# FLOATING PROJECT ASSISTANT CHATBOX
+# =========================================================
+
+PROJECT_KNOWLEDGE = {
+    "project_name": "Market Basket Analysis for Cross-Selling Strategy using Online Retail II Dataset",
+    "dataset": "Online Retail II basket-level dataset after cleaning and transaction construction.",
+    "purpose": (
+        "This dashboard helps analyze product co-occurrence patterns, discover association rules, "
+        "compare Apriori and FP-Growth, simulate cross-selling actions, and check regression-based robustness."
+    ),
+    "research_questions": [
+        "RQ1: Which basket association rules have the highest lift values while still meeting minimum support and confidence thresholds?",
+        "RQ2: Which product categories or product groups show strong cross-selling potential based on co-occurrence and lift?"
+    ],
+    "team_members": [
+        "Không đủ dữ liệu để xác minh. Điền tên thành viên nhóm vào PROJECT_KNOWLEDGE['team_members']."
+    ]
+}
+
+
+def _safe_dict_get(obj, key, default=None):
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return default
+
+
+def _format_number(value, decimals=2):
+    try:
+        if value is None:
+            return "N/A"
+        if isinstance(value, int):
+            return f"{value:,}"
+        return f"{float(value):,.{decimals}f}"
+    except Exception:
+        return "N/A"
+
+
+def build_dashboard_context_text(
+    selected_country,
+    country_filter_audit=None,
+    country_mba_outputs=None,
+    country_model_outputs=None
+):
+    audit = country_filter_audit if isinstance(country_filter_audit, dict) else {}
+    mba_outputs = country_mba_outputs if isinstance(country_mba_outputs, dict) else {}
+    model_outputs = country_model_outputs if isinstance(country_model_outputs, dict) else {}
+
+    country = selected_country if selected_country else "All"
+
+    basket_rows = audit.get("basket_rows", "N/A")
+    usable_baskets = audit.get("usable_baskets", "N/A")
+    unique_products = audit.get("unique_products", "N/A")
+    avg_basket_size = audit.get("avg_basket_size", "N/A")
+    total_revenue = audit.get("total_revenue", "N/A")
+
+    status = mba_outputs.get("status", audit.get("status", "N/A"))
+    message = mba_outputs.get("message", audit.get("message", "N/A"))
+
+    rules_df = mba_outputs.get("rules")
+    strong_rules_df = mba_outputs.get("strong_rules")
+
+    if strong_rules_df is None:
+        strong_rules_df = mba_outputs.get("top20")
+
+    runtime_df = mba_outputs.get("runtime_summary")
+
+    if runtime_df is None:
+        runtime_df = mba_outputs.get("runtime")
+
+    generated_rules = len(rules_df) if hasattr(rules_df, "__len__") and rules_df is not None else audit.get("generated_rules", "N/A")
+    strong_rules = len(strong_rules_df) if hasattr(strong_rules_df, "__len__") and strong_rules_df is not None else audit.get("strong_rules", "N/A")
+
+    top_rule_text = "N/A"
+    top_support = "N/A"
+    top_confidence = "N/A"
+    top_lift = "N/A"
+
+    try:
+        if strong_rules_df is not None and len(strong_rules_df) > 0:
+            top_rule = strong_rules_df.sort_values(
+                by=["lift", "confidence", "support"],
+                ascending=False
+            ).iloc[0]
+
+            top_rule_text = str(top_rule.get("rule_desc", top_rule.get("rule", "N/A")))
+            top_support = _format_number(top_rule.get("support"), 4)
+            top_confidence = f"{float(top_rule.get('confidence')) * 100:.2f}%"
+            top_lift = _format_number(top_rule.get("lift"), 2)
+    except Exception:
+        pass
+
+    apriori_runtime = "N/A"
+    fpgrowth_runtime = "N/A"
+    speedup = "N/A"
+
+    try:
+        if runtime_df is not None and len(runtime_df) > 0:
+            apriori_row = runtime_df[runtime_df["Algorithm"].astype(str).str.contains("Apriori", case=False, na=False)]
+            fpgrowth_row = runtime_df[runtime_df["Algorithm"].astype(str).str.contains("FP", case=False, na=False)]
+
+            if not apriori_row.empty:
+                apriori_runtime = float(apriori_row.iloc[0]["Runtime_Seconds"])
+            if not fpgrowth_row.empty:
+                fpgrowth_runtime = float(fpgrowth_row.iloc[0]["Runtime_Seconds"])
+            if apriori_runtime != "N/A" and fpgrowth_runtime != "N/A" and fpgrowth_runtime > 0:
+                speedup = apriori_runtime / fpgrowth_runtime
+    except Exception:
+        pass
+
+    regression_summary = "No regression context available."
+
+    try:
+        if isinstance(model_outputs, dict) and model_outputs.get("status") == "completed":
+            results_df = model_outputs.get("results")
+
+            if isinstance(results_df, pd.DataFrame) and not results_df.empty:
+                final_candidates = results_df[
+                    results_df["Model"].astype(str).str.contains("Model 5|Model 4A", case=False, na=False)
+                ]
+
+                if final_candidates.empty:
+                    final_candidates = results_df.tail(1)
+
+                final_row = final_candidates.iloc[-1]
+
+                final_model = final_row.get("Model", "N/A")
+                coef = final_row.get("Rule_Coefficient", "N/A")
+                pvalue = final_row.get("P_Value", final_row.get("Rule_P_Value", "N/A"))
+                r2 = final_row.get("R_Squared", "N/A")
+
+                regression_summary = (
+                    f"Final model: {final_model}\n"
+                    f"Rule coefficient: {_format_number(coef, 4)}\n"
+                    f"p-value: {_format_number(pvalue, 4)}\n"
+                    f"R-squared: {_format_number(r2, 4)}"
+                )
+    except Exception:
+        pass
+
+    return {
+        "country": country,
+        "basket_rows": basket_rows,
+        "usable_baskets": usable_baskets,
+        "unique_products": unique_products,
+        "avg_basket_size": avg_basket_size,
+        "total_revenue": total_revenue,
+        "status": status,
+        "message": message,
+        "generated_rules": generated_rules,
+        "strong_rules": strong_rules,
+        "top_rule": top_rule_text,
+        "top_support": top_support,
+        "top_confidence": top_confidence,
+        "top_lift": top_lift,
+        "apriori_runtime": apriori_runtime,
+        "fpgrowth_runtime": fpgrowth_runtime,
+        "speedup": speedup,
+        "regression_summary": regression_summary,
+    }
+
+
+def answer_project_assistant(user_question, context):
+    q = user_question.lower().strip()
+
+    if not q:
+        return "Nhập câu hỏi về dashboard, dataset, rule mining, regression, hoặc mục tiêu project."
+
+    if any(word in q for word in ["mục đích", "purpose", "web này", "dashboard này", "project này", "làm gì"]):
+        return (
+            f"Project: {PROJECT_KNOWLEDGE['project_name']}\n\n"
+            f"Mục đích: {PROJECT_KNOWLEDGE['purpose']}"
+        )
+
+    if any(word in q for word in ["dataset", "data", "dữ liệu", "online retail"]):
+        return (
+            f"Dataset: {PROJECT_KNOWLEDGE['dataset']}\n\n"
+            f"Country đang chọn: {context['country']}\n"
+            f"Basket rows: {context['basket_rows']}\n"
+            f"Usable baskets: {context['usable_baskets']}\n"
+            f"Unique products: {context['unique_products']}\n"
+            f"Avg basket size: {context['avg_basket_size']}\n"
+            f"Total revenue: {context['total_revenue']}"
+        )
+
+    if any(word in q for word in ["thành viên", "member", "team", "nhóm"]):
+        members = PROJECT_KNOWLEDGE.get("team_members", [])
+        return "Thành viên nhóm:\n" + "\n".join([f"- {m}" for m in members])
+
+    if any(word in q for word in ["rq", "research question", "câu hỏi nghiên cứu"]):
+        return "Research Questions:\n" + "\n".join([f"- {rq}" for rq in PROJECT_KNOWLEDGE["research_questions"]])
+
+    if any(word in q for word in ["country", "quốc gia", "đang chọn", "selected"]):
+        return (
+            f"Country đang chọn: {context['country']}\n"
+            f"Pipeline status: {context['status']}\n"
+            f"Message: {context['message']}"
+        )
+
+    if any(word in q for word in ["rule", "association", "lift", "confidence", "support", "luật"]):
+        return (
+            f"Rule mining summary cho {context['country']}:\n\n"
+            f"Generated rules: {context['generated_rules']}\n"
+            f"Strong rules: {context['strong_rules']}\n\n"
+            f"Top rule: {context['top_rule']}\n"
+            f"Support: {context['top_support']}\n"
+            f"Confidence: {context['top_confidence']}\n"
+            f"Lift: {context['top_lift']}\n\n"
+            f"Lưu ý: Association rule là pattern đồng xuất hiện, không phải bằng chứng nhân quả."
+        )
+
+    if any(word in q for word in ["apriori", "fp-growth", "fpgrowth", "algorithm", "thuật toán", "runtime"]):
+        speedup_text = "N/A"
+        try:
+            if context["speedup"] != "N/A":
+                speedup_text = f"{float(context['speedup']):.2f}x"
+        except Exception:
+            pass
+
+        return (
+            f"Algorithm comparison cho {context['country']}:\n\n"
+            f"Apriori runtime: {context['apriori_runtime']}\n"
+            f"FP-Growth runtime: {context['fpgrowth_runtime']}\n"
+            f"FP-Growth speed-up: {speedup_text}\n\n"
+            f"Nếu hai thuật toán trả về cùng số frequent itemsets, khác biệt chính nằm ở thời gian chạy."
+        )
+
+    if any(word in q for word in ["regression", "model", "ols", "p-value", "r-squared", "hồi quy"]):
+        return (
+            f"Regression summary cho {context['country']}:\n\n"
+            f"{context['regression_summary']}\n\n"
+            f"Lưu ý: Regression section là robustness check quan sát, không phải causal proof."
+        )
+
+    if any(word in q for word in ["tab", "chức năng", "hướng dẫn", "dùng sao"]):
+        return (
+            "Các tab chính:\n"
+            "- Executive Overview: tổng quan basket, revenue, product frequency.\n"
+            "- Rules Explorer: lọc và xem association rules theo support, confidence, lift.\n"
+            "- Bundle Recommendation: chuyển strong rules thành gợi ý cross-selling/bundle.\n"
+            "- Algorithm Results: so sánh Apriori và FP-Growth.\n"
+            "- Add-to-Cart Simulator: mô phỏng doanh thu theo kịch bản cross-sell.\n"
+            "- Model Results: kiểm tra robustness bằng regression.\n"
+            "- Final Conclusion: tổng hợp kết quả cuối cùng."
+        )
+
+    return (
+        "Chatbox hiện hỗ trợ hỏi về: mục đích dashboard, dataset, thành viên nhóm, research questions, "
+        "country đang chọn, association rules, Apriori/FP-Growth, regression, và chức năng từng tab."
+    )
+
+
+def render_floating_project_assistant(
+    selected_country,
+    country_filter_audit=None,
+    country_mba_outputs=None,
+    country_model_outputs=None
+):
+    if FLOAT_CHATBOX_AVAILABLE:
+        float_init()
+
+    if "project_ai_open" not in st.session_state:
+        st.session_state.project_ai_open = False
+
+    if "project_ai_messages" not in st.session_state:
+        st.session_state.project_ai_messages = [
+            {
+                "role": "assistant",
+                "content": "Tôi có thể trả lời nhanh về dataset, rules, model, country filter, mục tiêu web, và thành viên nhóm."
+            }
+        ]
+
+    context = build_dashboard_context_text(
+        selected_country=selected_country,
+        country_filter_audit=country_filter_audit,
+        country_mba_outputs=country_mba_outputs,
+        country_model_outputs=country_model_outputs
+    )
+
+    with st.container():
+        toggle_label = "✕ Close AI Assistant" if st.session_state.project_ai_open else "🤖 Open AI Assistant"
+
+        if st.button(toggle_label, key="project_ai_toggle"):
+            st.session_state.project_ai_open = not st.session_state.project_ai_open
+            st.rerun()
+
+        if st.session_state.project_ai_open:
+            st.markdown("### 🤖 Project Assistant")
+            st.caption(f"Current context: {context['country']}")
+
+            chat_history_box = st.container(height=260)
+            with chat_history_box:
+                for msg in st.session_state.project_ai_messages[-8:]:
+                    if msg["role"] == "user":
+                        st.markdown(f"**You:** {msg['content']}")
+                    else:
+                        st.markdown(f"**Assistant:** {msg['content']}")
+
+            with st.form("project_ai_form", clear_on_submit=True):
+                user_question = st.text_input(
+                    "Ask about this dashboard",
+                    placeholder="Ví dụ: top rule của quốc gia này là gì?"
+                )
+                submitted = st.form_submit_button("Send")
+
+            if submitted and user_question.strip():
+                answer = answer_project_assistant(user_question, context)
+
+                st.session_state.project_ai_messages.append({
+                    "role": "user",
+                    "content": user_question.strip()
+                })
+                st.session_state.project_ai_messages.append({
+                    "role": "assistant",
+                    "content": answer
+                })
+
+                st.rerun()
+
+            if st.button("Clear chat", key="project_ai_clear"):
+                st.session_state.project_ai_messages = [
+                    {
+                        "role": "assistant",
+                        "content": "Chat đã được reset. Hỏi lại về dashboard, dataset, rule mining hoặc regression."
+                    }
+                ]
+                st.rerun()
+
+        if FLOAT_CHATBOX_AVAILABLE:
+            width = "420px" if st.session_state.project_ai_open else "220px"
+            height = "auto"
+
+            float_parent(
+                css=f"""
+                position: fixed;
+                bottom: 18px;
+                left: 18px;
+                width: {width};
+                height: {height};
+                z-index: 999999;
+                background: #111827;
+                border: 1px solid rgba(255,255,255,0.18);
+                border-radius: 14px;
+                padding: 12px;
+                box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+                """
+            )
+
 # ==========================================
 # 3. SIDEBAR
 # ==========================================
@@ -4187,3 +4542,19 @@ with tabs[8]:
 
         except Exception as e:
             st.error(f"Could not read uploaded regression CSV file: {e}")
+
+
+assistant_model_context = country_model_outputs
+
+if selected_country == "All":
+    assistant_model_context = {
+        "status": "completed",
+        "results": global_model_results
+    }
+
+render_floating_project_assistant(
+    selected_country=selected_country,
+    country_filter_audit=country_filter_audit,
+    country_mba_outputs=active_outputs,
+    country_model_outputs=assistant_model_context
+)
