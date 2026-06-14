@@ -2698,28 +2698,38 @@ with tabs[8]:
                                 "There is not enough evidence that rule_applied has an independent association with ProductRevenue after controls."
                             )
 
-                        st.markdown(f"""
-                        <div class="insight-box">
-                            <h4>Final Regression Result</h4>
+                        .
+                        with st.container(border=True):
+                            st.markdown("### Final Regression Result")
 
-                            <b>Selected Rule:</b> {", ".join(rule_applied_stats["antecedent_codes"])} → {", ".join(rule_applied_stats["consequent_codes"])}<br>
-                            <b>Rule Applied Baskets:</b> {rule_applied_stats["applied_count"]:,}<br>
-                            <b>Rule Not Applied Baskets:</b> {rule_applied_stats["not_applied_count"]:,}<br>
-                            <b>Applied Rate:</b> {rule_applied_stats["applied_rate"]:.2%}<br><br>
+                            st.markdown(
+                                f"**Selected Rule:** {', '.join(rule_applied_stats['antecedent_codes'])} "
+                                f"→ {', '.join(rule_applied_stats['consequent_codes'])}"
+                            )
 
-                            <b>Baseline Model Coefficient:</b> {baseline_coef:.4f}<br>
-                            <b>Baseline Model p-value:</b> {baseline_pvalue:.4f}<br><br>
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("Rule Applied Baskets", f"{rule_applied_stats['applied_count']:,}")
+                            c2.metric("Rule Not Applied Baskets", f"{rule_applied_stats['not_applied_count']:,}")
+                            c3.metric("Applied Rate", f"{rule_applied_stats['applied_rate']:.2%}")
 
-                            <b>Final Controlled Model Coefficient:</b> {final_coef:.4f}<br>
-                            <b>Final Controlled Model p-value:</b> {final_pvalue:.4f}<br>
-                            <b>Final Controlled Model R-squared:</b> {final_r2:.4f}<br>
-                            <b>Observations:</b> {final_n:,}<br><br>
+                            st.markdown("#### Baseline Model")
+                            b1, b2 = st.columns(2)
+                            b1.metric("Baseline Coefficient", f"{baseline_coef:.4f}")
+                            b2.metric("Baseline p-value", f"{baseline_pvalue:.4f}")
 
-                            <b>Interpretation:</b> {final_interpretation}<br><br>
+                            st.markdown("#### Final Controlled Model")
+                            f1, f2, f3, f4 = st.columns(4)
+                            f1.metric("Final Coefficient", f"{final_coef:.4f}")
+                            f2.metric("Final p-value", f"{final_pvalue:.4f}")
+                            f3.metric("Final R²", f"{final_r2:.4f}")
+                            f4.metric("Observations", f"{final_n:,}")
 
-                            <b>Important Note:</b> This regression is an observational robustness check, not causal proof.
-                        </div>
-                        """, unsafe_allow_html=True)
+                            st.markdown("#### Interpretation")
+                            st.markdown(final_interpretation)
+
+                            st.caption(
+                                "Important note: This regression is an observational robustness check, not causal proof."
+                            )
 
                         st.markdown("""
                         <div class="insight-box">
