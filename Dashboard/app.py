@@ -1739,8 +1739,7 @@ def render_floating_project_assistant(
     if FLOAT_CHATBOX_AVAILABLE:
         float_init()
 
-    if "project_ai_open" not in st.session_state:
-        st.session_state.project_ai_open = False
+    
 
     if "project_ai_messages" not in st.session_state:
         st.session_state.project_ai_messages = [
