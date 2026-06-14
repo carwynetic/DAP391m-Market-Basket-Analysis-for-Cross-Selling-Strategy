@@ -1725,8 +1725,16 @@ def answer_project_assistant(user_question, context):
         )
 
     return (
-        "Chatbox hiện hỗ trợ hỏi về: mục đích dashboard, dataset, thành viên nhóm, research questions, "
-        "country đang chọn, association rules, Apriori/FP-Growth, regression, và chức năng từng tab."
+        "Không nhận diện được ý hỏi.\n\n"
+        "Các nhóm câu hỏi đang hỗ trợ:\n"
+        "- Dataset / dữ liệu\n"
+        "- Top rule / support / confidence / lift\n"
+        "- Quốc gia đang chọn\n"
+        "- Apriori / FP-Growth / runtime\n"
+        "- Regression / OLS / p-value / R-squared\n"
+        "- Mục đích dashboard\n"
+        "- Thành viên nhóm\n"
+        "- Chức năng từng tab"
     )
 
 
@@ -1869,12 +1877,40 @@ def render_floating_project_assistant(
             ):
                 st.session_state.project_ai_open = False
                 st.rerun()
-
+            ##################################################
             st.markdown("### 🤖 Project Assistant")
             st.caption(f"Current context: {context['country']}")
 
-            chat_history_box = st.container(height=260)
+            quick_questions = [
+                ("📦 Dataset", "tóm tắt dataset"),
+                ("🔝 Top Rule", "top rule là gì"),
+                ("⚙️ Algorithm", "so sánh Apriori và FP-Growth"),
+                ("📈 Regression", "kết quả regression"),
+                ("💡 Recommendation", "gợi ý business recommendation"),
+                ("🧭 Tab Guide", "hướng dẫn chức năng từng tab")
+            ]
 
+            quick_cols = st.columns(3)
+
+            for idx, (label, prompt_text) in enumerate(quick_questions):
+                with quick_cols[idx % 3]:
+                    if st.button(label, key=f"project_ai_quick_{idx}"):
+                        answer = answer_project_assistant(prompt_text, context)
+
+                        st.session_state.project_ai_messages.append({
+                            "role": "user",
+                            "content": prompt_text
+                        })
+
+                        st.session_state.project_ai_messages.append({
+                            "role": "assistant",
+                            "content": answer
+                        })
+
+                        st.rerun()
+
+            chat_history_box = st.container(height=260)
+            ##################################################
             with chat_history_box:
                 for msg in st.session_state.project_ai_messages[-8:]:
                     if msg["role"] == "user":
