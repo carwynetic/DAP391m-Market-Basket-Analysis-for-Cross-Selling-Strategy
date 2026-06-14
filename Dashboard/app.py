@@ -1520,14 +1520,15 @@ def build_dashboard_context_text(
     selected_country,
     country_filter_audit=None,
     country_mba_outputs=None,
-    country_model_outputs=None
+    country_model_outputs=None,
+    current_tab=None
 ):
     audit = country_filter_audit if isinstance(country_filter_audit, dict) else {}
     mba_outputs = country_mba_outputs if isinstance(country_mba_outputs, dict) else {}
     model_outputs = country_model_outputs if isinstance(country_model_outputs, dict) else {}
 
     country = selected_country if selected_country else "All"
-
+    tab_context = current_tab or st.session_state.get("project_ai_tab_context", "General")
     basket_rows = audit.get("basket_rows", "N/A")
     usable_baskets = audit.get("usable_baskets", "N/A")
     unique_products = audit.get("unique_products", "N/A")
@@ -1620,6 +1621,7 @@ def build_dashboard_context_text(
 
     return {
         "country": country,
+        "current_tab": tab_context,
         "basket_rows": basket_rows,
         "usable_baskets": usable_baskets,
         "unique_products": unique_products,
@@ -1639,12 +1641,122 @@ def build_dashboard_context_text(
         "regression_summary": regression_summary,
     }
 
+def explain_current_tab(context):
+    tab = context.get("current_tab", "General")
+    country = context.get("country", "All")
+    status = context.get("status", "N/A")
+
+    if "Executive Overview" in tab:
+        return (
+            f"Tab hiện tại: Executive Overview.\n\n"
+            f"Tab này dùng để xem tổng quan dataset theo country đang chọn: {country}.\n"
+            f"Nó hiển thị tổng baskets, total revenue, average basket size, max lift, "
+            f"basket size distribution, và top products by frequency."
+        )
+
+    if "Rules Explorer" in tab:
+        return (
+            f"Tab hiện tại: Rules Explorer.\n\n"
+            f"Tab này trả lời RQ1 bằng cách hiển thị association rules theo support, confidence, và lift.\n"
+            f"Country đang chọn: {country}\n"
+            f"Pipeline status: {status}\n\n"
+            f"Top rule hiện tại: {context.get('top_rule', 'N/A')}\n"
+            f"Support: {context.get('top_support', 'N/A')}\n"
+            f"Confidence: {context.get('top_confidence', 'N/A')}\n"
+            f"Lift: {context.get('top_lift', 'N/A')}\n\n"
+            f"Lưu ý: association rule là pattern đồng xuất hiện, không phải bằng chứng nhân quả."
+        )
+
+    if "Bundle Recommendation" in tab:
+        return (
+            f"Tab hiện tại: Bundle Recommendation.\n\n"
+            f"Tab này chuyển strong association rules thành gợi ý hành động cho product team, "
+            f"ví dụ checkout recommendation, bundle promotion, hoặc frequently bought together.\n"
+            f"Country đang chọn: {country}\n"
+            f"Top rule dùng làm gợi ý: {context.get('top_rule', 'N/A')}"
+        )
+
+    if "Algorithm Results" in tab:
+        speedup_text = "N/A"
+        try:
+            if context.get("speedup") != "N/A":
+                speedup_text = f"{float(context['speedup']):.2f}x"
+        except Exception:
+            pass
+
+        return (
+            f"Tab hiện tại: Algorithm Results.\n\n"
+            f"Tab này so sánh Apriori và FP-Growth theo runtime và số frequent itemsets.\n"
+            f"Country đang chọn: {country}\n"
+            f"Apriori runtime: {context.get('apriori_runtime', 'N/A')}\n"
+            f"FP-Growth runtime: {context.get('fpgrowth_runtime', 'N/A')}\n"
+            f"FP-Growth speed-up: {speedup_text}"
+        )
+
+    if "Add-to-Cart Simulator" in tab:
+        return (
+            f"Tab hiện tại: Add-to-Cart / Revenue Simulator.\n\n"
+            f"Tab này mô phỏng doanh thu từ một kịch bản cross-selling dựa trên rule confidence, "
+            f"target customers, conversion rate, expected AOV, discount rate, và campaign cost.\n"
+            f"Country đang chọn: {country}\n\n"
+            f"Lưu ý: đây là scenario-based estimation, không phải causal proof."
+        )
+
+    if "Model Results" in tab:
+        return (
+            f"Tab hiện tại: Model Results.\n\n"
+            f"Tab này dùng regression để kiểm tra robustness của selected rule sau khi thêm basket-level controls.\n"
+            f"Country đang chọn: {country}\n\n"
+            f"{context.get('regression_summary', 'No regression context available.')}\n\n"
+            f"Lưu ý: regression ở đây là observational robustness check, không phải causal proof."
+        )
+
+    if "Final Conclusion" in tab:
+        return (
+            f"Tab hiện tại: Final Conclusion.\n\n"
+            f"Tab này tổng hợp kết quả rule mining, algorithm comparison, regression robustness check, "
+            f"và business recommendation.\n"
+            f"Country đang chọn: {country}\n"
+            f"Top rule: {context.get('top_rule', 'N/A')}\n"
+            f"Lift: {context.get('top_lift', 'N/A')}"
+        )
+
+    if "Run MBA on New Dataset" in tab:
+        return (
+            "Tab hiện tại: Run MBA on New Dataset.\n\n"
+            "Tab này dùng để upload transaction-level CSV mới, validate schema, build baskets, "
+            "encode transaction matrix, chạy Apriori/FP-Growth, generate association rules, "
+            "và xuất kết quả rule mining."
+        )
+
+    if "Run Regression on New Dataset" in tab:
+        return (
+            "Tab hiện tại: Run Regression on New Dataset.\n\n"
+            "Tab này dùng để upload basket-level regression-ready CSV, validate dữ liệu, "
+            "tạo biến rule_applied, xử lý outlier, chạy OLS regression, và xuất regression outputs."
+        )
+
+    return (
+        "Tab context hiện tại chưa được chọn rõ. "
+        "Hãy chọn Tab context trong Project Assistant trước khi hỏi về tab hiện tại."
+    )
 
 def answer_project_assistant(user_question, context):
     q = user_question.lower().strip()
 
     if not q:
         return "Nhập câu hỏi về dashboard, dataset, rule mining, regression, hoặc mục tiêu project."
+    if any(phrase in q for phrase in [
+        "tab này",
+        "trang này",
+        "màn hình này",
+        "đang xem gì",
+        "giải thích tab",
+        "giải thích trang",
+        "kết luận tab",
+        "kết luận trang"
+    ]):
+        return explain_current_tab(context)
 
     if any(word in q for word in ["mục đích", "purpose", "web này", "dashboard này", "project này", "làm gì"]):
         return (
@@ -1757,12 +1869,26 @@ def render_floating_project_assistant(
                 "content": "Tôi có thể trả lời nhanh về dataset, rules, model, country filter, mục tiêu web, và thành viên nhóm."
             }
         ]
+    ASSISTANT_TAB_OPTIONS = [
+        "📊 1. Executive Overview",
+        "🔍 2. Rules Explorer",
+        "🎁 3. Bundle Recommendation",
+        "⚙️ 4. Algorithm Results",
+        "🧮 5. Add-to-Cart Simulator",
+        "📈 6. Model Results",
+        "💡 7. Final Conclusion",
+        "🧪 8. Run MBA on New Dataset",
+        "📈 9. Run Regression on New Dataset"
+    ]
 
+    if "project_ai_tab_context" not in st.session_state:
+        st.session_state.project_ai_tab_context = ASSISTANT_TAB_OPTIONS[0]
     context = build_dashboard_context_text(
         selected_country=selected_country,
         country_filter_audit=country_filter_audit,
         country_mba_outputs=country_mba_outputs,
-        country_model_outputs=country_model_outputs
+        country_model_outputs=country_model_outputs,
+        current_tab=st.session_state.get("project_ai_tab_context", ASSISTANT_TAB_OPTIONS[0])
     )
 
     # ==========================
@@ -1806,7 +1932,11 @@ def render_floating_project_assistant(
             with st.popover("🤖", help="Open Project Assistant"):
                 st.markdown("### 🤖 Project Assistant")
                 st.caption(f"Current context: {context['country']}")
-
+                st.selectbox(
+                    "Tab context",
+                    options=ASSISTANT_TAB_OPTIONS,
+                    key="project_ai_tab_context"
+                )
                 chat_history_box = st.container(height=260)
 
                 with chat_history_box:
@@ -1880,14 +2010,18 @@ def render_floating_project_assistant(
             ##################################################
             st.markdown("### 🤖 Project Assistant")
             st.caption(f"Current context: {context['country']}")
-
+            st.selectbox(
+                "Tab context",
+                options=ASSISTANT_TAB_OPTIONS,
+                key="project_ai_tab_context"
+            )
             quick_questions = [
                 ("📦 Dataset", "tóm tắt dataset"),
                 ("🔝 Top Rule", "top rule là gì"),
                 ("⚙️ Algorithm", "so sánh Apriori và FP-Growth"),
                 ("📈 Regression", "kết quả regression"),
                 ("💡 Recommendation", "gợi ý business recommendation"),
-                ("🧭 Tab Guide", "hướng dẫn chức năng từng tab")
+                ("🧭 Current Tab", "Giải thích tab này")
             ]
 
             quick_cols = st.columns(3)
