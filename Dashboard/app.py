@@ -2391,46 +2391,235 @@ with tabs[5]:
                 mime="text/csv"
             )
 # ------------------------------------------
-# TAB 7: FINAL BUSINESS CONCLUSION
+# TAB 7: FINAL CONCLUSION
 # ------------------------------------------
 with tabs[6]:
-    st.header("Final Business Conclusion")
-    
-    if df_top20.empty:
-        st.warning("Needs top 20 rules data.")
+    st.header("Final Conclusion")
+
+    st.caption(
+        f"Current selection: {selected_country} | "
+        f"{'Global conclusion' if selected_country == 'All' else 'Country-specific conclusion'}"
+    )
+
+    if selected_country == "All":
+        st.subheader("Overall Market Basket Analysis Conclusion")
+
+        if active_top20.empty:
+            st.warning("No global top association rules are available.")
+        else:
+            top_rule = active_top20.iloc[0]
+
+            top_rule_desc = top_rule.get("rule_desc", top_rule.get("rule", "N/A"))
+            top_support = top_rule.get("support", np.nan)
+            top_confidence = top_rule.get("confidence", np.nan)
+            top_lift = top_rule.get("lift", np.nan)
+
+            total_rules = len(active_rules) if isinstance(active_rules, pd.DataFrame) else 0
+            strong_rules = len(active_top20) if isinstance(active_top20, pd.DataFrame) else 0
+
+            st.markdown(f"""
+            <div class="insight-box">
+                <h3>Global Association Rule Mining Summary</h3>
+                <b>Total baskets:</b> {len(df_basket):,}<br>
+                <b>Total generated rules:</b> {total_rules:,}<br>
+                <b>Top displayed rules:</b> {strong_rules:,}<br><br>
+
+                <b>Top global rule:</b> {top_rule_desc}<br>
+                <b>Support:</b> {top_support:.4f}<br>
+                <b>Confidence:</b> {top_confidence:.2%}<br>
+                <b>Lift:</b> {top_lift:.2f}<br><br>
+
+                <b>Conclusion:</b> The global dataset contains strong product co-occurrence patterns that can support cross-selling and bundle recommendation decisions.
+                These patterns are association-based signals, not causal proof.
+            </div>
+            """, unsafe_allow_html=True)
+
+        if not global_model_results.empty:
+            final_model = global_model_results.tail(1).iloc[0]
+
+            st.markdown(f"""
+            <div class="insight-box">
+                <h3>Global Regression Robustness Check</h3>
+                <b>Final model:</b> {final_model.get("Model", "N/A")}<br>
+                <b>Rule coefficient:</b> {final_model.get("Rule_Coefficient", np.nan)}<br>
+                <b>p-value:</b> {final_model.get("P_Value", np.nan)}<br>
+                <b>R-squared:</b> {final_model.get("R_Squared", np.nan)}<br><br>
+
+                <b>Interpretation:</b> The regression section is used as an observational robustness check.
+                It should not be interpreted as causal evidence.
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("""
+        <div class="insight-box">
+            <h3>Final Business Recommendation</h3>
+            Use high-lift and high-confidence rules as candidates for:
+            <br>1. Checkout recommendation
+            <br>2. Bundle promotion
+            <br>3. Product placement
+            <br>4. Add-to-cart suggestion
+            <br><br>
+            Final implementation should still be validated with real business experiments before deployment.
+        </div>
+        """, unsafe_allow_html=True)
+
     else:
-        st.markdown("### Top Rules Summarized")
-        
-        top_lift = df_top20.sort_values('lift', ascending=False).head(5)
-        top_conf = df_top20.sort_values('confidence', ascending=False).head(5)
-        
-        c1, c2 = st.columns(2)
-        c1.markdown("**Top 5 by Lift**")
-        for i, r in top_lift.iterrows():
-            c1.markdown(f"- {r['rule_desc']} (Lift: {r['lift']:.2f})")
-            
-        c2.markdown("**Top 5 by Confidence**")
-        for i, r in top_conf.iterrows():
-            c2.markdown(f"- {r['rule_desc']} (Conf: {r['confidence']:.1%})")
-            
-        st.markdown("---")
-        st.markdown("### Executive Recommendation")
-        
-        best = top_lift.iloc[0]
-        ant = best['antecedents_desc']
-        con = best['consequents_desc']
-        
-        st.markdown(f"""
-        > **Top rule:** {ant} → {con}  
-        >
-        > Customers who bought **{ant}** are more likely to buy **{con}**.  
-        >
-        > This rule has support = **{best['support']:.4f}**, confidence = **{best['confidence']:.1%}**, and lift = **{best['lift']:.2f}**.  
-        >
-        > **Action:** Product team can test this as a bundle offer or checkout recommendation to support cross-selling and improve Average Order Value.
-        >
-        > **Note:** This recommendation is based on association rule mining. It should be tested through campaign experiments before making a causal claim.
-        """)
+        st.subheader(f"Country-Specific Conclusion: {selected_country}")
+
+        if active_outputs["status"] != "completed":
+            st.warning(active_outputs["message"])
+
+            st.markdown(f"""
+            <div class="insight-box">
+                <h3>Conclusion for {selected_country}</h3>
+                Country-specific association rule mining was not executed because the selected country does not have enough usable baskets.
+                <br><br>
+                <b>Usable baskets:</b> {active_outputs.get("transactions", 0):,}<br>
+                <b>Minimum required:</b> {COUNTRY_MIN_TRANSACTIONS:,}<br><br>
+                <b>Decision:</b> Do not generate rule-based bundle or simulator recommendations for this country.
+                Use the global output only as general reference, not as a country-specific result.
+            </div>
+            """, unsafe_allow_html=True)
+
+        elif active_top20.empty:
+            st.warning("Country-specific mining completed, but no strong rules were found.")
+
+            st.markdown(f"""
+            <div class="insight-box">
+                <h3>Conclusion for {selected_country}</h3>
+                The selected country has enough baskets for mining, but no strong association rules passed the current support, confidence, and lift thresholds.
+                <br><br>
+                <b>Decision:</b> Lower thresholds carefully or collect more transaction data before making country-specific cross-selling recommendations.
+            </div>
+            """, unsafe_allow_html=True)
+
+        else:
+            top_rule = active_top20.iloc[0]
+
+            top_rule_desc = top_rule.get("rule_desc", top_rule.get("rule", "N/A"))
+            top_support = top_rule.get("support", np.nan)
+            top_confidence = top_rule.get("confidence", np.nan)
+            top_lift = top_rule.get("lift", np.nan)
+
+            total_rules = len(active_rules) if isinstance(active_rules, pd.DataFrame) else 0
+            strong_rules = len(active_top20) if isinstance(active_top20, pd.DataFrame) else 0
+
+            st.markdown(f"""
+            <div class="insight-box">
+                <h3>Association Rule Mining Result for {selected_country}</h3>
+                <b>Usable baskets:</b> {active_outputs.get("transactions", 0):,}<br>
+                <b>Unique products:</b> {active_outputs.get("unique_products", 0):,}<br>
+                <b>Generated rules:</b> {total_rules:,}<br>
+                <b>Strong displayed rules:</b> {strong_rules:,}<br><br>
+
+                <b>Top country-specific rule:</b> {top_rule_desc}<br>
+                <b>Support:</b> {top_support:.4f}<br>
+                <b>Confidence:</b> {top_confidence:.2%}<br>
+                <b>Lift:</b> {top_lift:.2f}<br><br>
+
+                <b>Conclusion:</b> {selected_country} has country-specific basket patterns that differ from the global output.
+                These rules should be used for localized cross-selling recommendations.
+            </div>
+            """, unsafe_allow_html=True)
+
+            if isinstance(active_alg_runtime, pd.DataFrame) and not active_alg_runtime.empty:
+                runtime_df = active_alg_runtime.copy()
+
+                apriori_runtime = runtime_df.loc[
+                    runtime_df["Algorithm"].astype(str).str.lower().eq("apriori"),
+                    "Runtime_Seconds"
+                ]
+
+                fpgrowth_runtime = runtime_df.loc[
+                    runtime_df["Algorithm"].astype(str).str.lower().isin(["fp-growth", "fpgrowth"]),
+                    "Runtime_Seconds"
+                ]
+
+                apriori_time = float(apriori_runtime.iloc[0]) if not apriori_runtime.empty else np.nan
+                fpgrowth_time = float(fpgrowth_runtime.iloc[0]) if not fpgrowth_runtime.empty else np.nan
+
+                if pd.notna(apriori_time) and pd.notna(fpgrowth_time) and fpgrowth_time > 0:
+                    speedup = apriori_time / fpgrowth_time
+                    alg_text = f"FP-Growth was {speedup:.2f}x faster than Apriori for {selected_country}."
+                else:
+                    alg_text = "Runtime comparison is available, but speed-up cannot be calculated."
+
+                st.markdown(f"""
+                <div class="insight-box">
+                    <h3>Algorithm Comparison for {selected_country}</h3>
+                    <b>Apriori runtime:</b> {apriori_time:.4f} seconds<br>
+                    <b>FP-Growth runtime:</b> {fpgrowth_time:.4f} seconds<br>
+                    <b>Interpretation:</b> {alg_text}
+                </div>
+                """, unsafe_allow_html=True)
+
+            country_model_outputs = st.session_state.get("country_model_outputs")
+
+            if (
+                country_model_outputs is not None
+                and country_model_outputs.get("status") == "completed"
+                and isinstance(country_model_outputs.get("results"), pd.DataFrame)
+                and not country_model_outputs["results"].empty
+            ):
+                country_results = country_model_outputs["results"].copy()
+
+                final_controlled = country_results[
+                    country_results["Model"].astype(str).str.contains("Model 4A", case=False, na=False)
+                ]
+
+                if final_controlled.empty:
+                    final_controlled = country_results.tail(1)
+
+                final_row = final_controlled.iloc[0]
+
+                coef = final_row.get("Rule_Coefficient", np.nan)
+                p_value = final_row.get("P_Value", np.nan)
+                r_squared = final_row.get("R_Squared", np.nan)
+
+                if pd.notna(p_value) and p_value < 0.05:
+                    regression_conclusion = (
+                        "The selected rule remains statistically significant after basket-level controls."
+                    )
+                else:
+                    regression_conclusion = (
+                        "The selected rule is not statistically significant after basket-level controls."
+                    )
+
+                st.markdown(f"""
+                <div class="insight-box">
+                    <h3>Regression Robustness Check for {selected_country}</h3>
+                    <b>Final controlled model:</b> {final_row.get("Model", "N/A")}<br>
+                    <b>Rule coefficient:</b> {coef}<br>
+                    <b>p-value:</b> {p_value}<br>
+                    <b>R-squared:</b> {r_squared}<br><br>
+
+                    <b>Interpretation:</b> {regression_conclusion}
+                    This regression result is observational and should not be interpreted as causal proof.
+                </div>
+                """, unsafe_allow_html=True)
+
+            else:
+                st.markdown(f"""
+                <div class="insight-box">
+                    <h3>Regression Robustness Check for {selected_country}</h3>
+                    Country-specific regression output is not available or was not completed.
+                    The final recommendation should rely only on association-rule evidence for this country.
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown(f"""
+            <div class="insight-box">
+                <h3>Final Business Recommendation for {selected_country}</h3>
+                Prioritize the strongest country-specific rules for localized cross-selling actions.
+                <br><br>
+                Suggested actions:
+                <br>1. Recommend the consequent item at checkout.
+                <br>2. Test bundle promotion using the antecedent and consequent products.
+                <br>3. Compare performance against the global rule set.
+                <br><br>
+                These recommendations are candidate business actions and require real-world validation.
+            </div>
+            """, unsafe_allow_html=True)
 # ------------------------------------------
 # TAB 8: RUN MBA ON NEW DATASET - UPLOAD + VALIDATION ONLY
 # ------------------------------------------
