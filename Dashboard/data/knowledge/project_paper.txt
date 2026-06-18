@@ -1,0 +1,440 @@
+
+
+===== PAGE 1 =====
+
+Market Basket Analysis for Cross-Selling Strategy in
+E-commerce Using Association Rule Mining
+Hoang-Linh Nguyen1, *, Doan-Bao-Phuc Nguyen1,
+Duc-Thuan Vu1, and Nhat-Hoang-An Dinh1
+FPT University, Ho Chi Minh Campus, Vietnam
+linhnh7@fe.edu.vn*, baote332@gmail.com,
+thoingu68@gmail.com, bakerjohn123.9@gmail.com
+Abstract
+This study applies Market Basket Analysis to the Online Retail II dataset to identify
+co-purchase patterns and generate cross-selling candidates in e-commerce. The pipeline covers
+transaction preprocessing, basket construction, transaction encoding, Apriori and FP-Growth
+comparison, association rule generation, rule filtering, visualization, and supplementary
+basket-value checking. Instead of focusing on a single rule, the study generates rules that
+satisfy predefined support, confidence, and lift thresholds, then interprets the top rules
+through a combined view of lift, support, and confidence. A representative regression-
+based robustness check is also conducted to examine whether baskets containing a high-lift
+association are associated with higher average order value after controlling for basket-level
+characteristics. The results indicate that association rules can reveal meaningful co-purchase
+patterns and generate recommendation candidates, although their operational value should
+be validated further in a live business setting.
+Keywords: Market Basket Analysis, Association Rule Mining, FP-Growth, Apriori, Cross-
+Selling, E-commerce, Regression Analysis
+1
+Introduction
+While Market Basket Analysis (MBA) has been widely applied to discover co-purchase patterns
+and generate association rules, many studies primarily stop at rule generation. Relatively few
+studies further examine whether high-lift associations remain associated with basket-level value
+after accounting for basket characteristics. Therefore, this study not only identifies product
+associations for cross-selling recommendations but also investigates their value relevance through
+a supplementary robustness check.
+The rapid growth of digital commerce has increased product variety and intensified competition
+among businesses. As supermarkets, retail stores, and e-commerce platforms generate large
+volumes of transaction data, firms increasingly need data-driven methods to understand customer
+purchasing behavior and improve business decision-making [1, 2]. Market Basket Analysis
+(MBA) is a data mining technique used to discover associations among products within customer
+transactions. By identifying frequent itemsets and association rules, MBA can help businesses
+observe which products tend to be purchased together and form candidate ideas for cross-selling,
+product recommendation, promotion planning, and inventory-related decisions [7, 8].
+
+
+===== PAGE 2 =====
+
+2
+Linh Nguyen et al.
+Association rule mining algorithms such as Apriori and FP-Growth are commonly applied
+in MBA to extract purchasing patterns. These methods evaluate product relationships using
+support, confidence, and lift, allowing businesses to measure both the frequency and strength
+of association patterns [7]. However, many MBA studies stop at generating rules and ranking
+them by metrics, while less attention is given to whether high-lift rules are also associated
+with higher basket-level value. This creates a practical research gap: association rules may
+identify co-purchase patterns, but high lift alone does not necessarily imply operational value or
+independent revenue improvement.
+Therefore, this study applies Market Basket Analysis to the Online Retail II dataset from
+the UCI Machine Learning Repository, which contains transaction records from a UK-based
+online retail business between 2009 and 2011 [9]. The paper does not only mine co-purchase
+patterns; it also checks the value relevance of a representative high-lift association through
+basket-level regression. The study addresses three research questions: (RQ1) which basket
+association rules have the highest lift values while meeting minimum support and confidence
+thresholds; (RQ2) which product pairs or itemsets appear as promising cross-selling candidates
+based on co-occurrence and lift; and (RQ3) whether baskets containing a representative high-lift
+association are associated with higher basket value after controlling for basket characteristics.
+2
+Related Work
+Market Basket Analysis has been widely applied in retail and e-commerce to discover product
+relationships from transaction data. By identifying items that frequently appear together in
+the same basket, this technique can support candidate generation for cross-selling, promotion
+planning, and inventory management [8]. In digital commerce, such data-driven approaches are
+increasingly important because businesses need to understand purchasing behavior at scale [1, 2].
+Association rule mining is the main technique used in Market Basket Analysis. Apriori finds
+frequent itemsets through candidate generation and pruning, but it can be costly for large
+datasets [4]. FP-Growth improves efficiency by mining frequent patterns without generating
+candidates, making it suitable for larger transaction datasets [6]. Previous studies have shown
+that these methods can reveal purchasing patterns [7, 8]. This study extends the standard
+rule-generation workflow by adding threshold justification, product-level interpretation, and a
+representative regression-based robustness check to avoid treating association metrics as direct
+evidence of business impact.
+3
+Proposed Methodology
+3.1
+Problem Setting and System Overview
+Given a retail transaction dataset, the proposed Market Basket Analysis pipeline aims to identify
+co-purchase patterns and convert them into cross-selling hypotheses. Each invoice is treated
+as one customer basket, and products within the same invoice are considered co-purchased
+items. The main outputs are frequent itemsets, association rules, top-ranked rule candidates,
+rule metric visualizations, and a supplementary regression-based check.
+As shown in Figure 1, the workflow consists of six stages: data loading and cleaning, basket
+construction, basket filtering, transaction encoding, frequent itemset and rule mining, and
+
+
+===== PAGE 3 =====
+
+Project Market Basket Analysis for Cross-Selling Strategy
+3
+business-oriented output packaging. Apriori and FP-Growth are compared under the same
+support threshold to ensure a fair algorithmic comparison. FP-Growth is used for the final rule
+generation because it avoids repeated candidate generation and is more suitable for producing
+the final rule set from the large transaction matrix [6].
+Figure 1: End-to-end workflow of the proposed Market Basket Analysis pipeline.
+3.2
+Data Construction and Basket Definition
+The study uses the Online Retail II dataset, consisting of online_retail_09_10.csv and
+online_retail_10_11.csv [9]. After concatenation, the raw dataset contains 1,067,371 rows
+and 8 columns: InvoiceNo, StockCode, Description, Quantity, InvoiceDate, UnitPrice,
+CustomerID, and Country. InvoiceNo is used as the basket identifier, while StockCode is used
+as the item identifier. This basket definition is suitable for MBA because each invoice represents
+a transaction containing one or more purchased products.
+The raw data are cleaned to retain valid purchase transactions. Rows with missing Description,
+cancelled invoices, invalid quantities or prices, and duplicate records are removed. CustomerID
+is retained even when missing because customer identity is not required for basket-level asso-
+ciation rule mining. After these steps, the dataset contains 1,007,913 valid purchase records.
+Non-product StockCodes such as POST, DOT, M, C2, ADJUST, BANK CHARGES, AMAZONFEE, test
+codes, and gift voucher codes are removed because they represent fees, manual adjustments, or
+non-merchandise entries rather than retail products. After product-code cleaning, the cleaned
+basket-item dataset contains 1,003,357 rows.
+A monetary feature is created for basket-value analysis:
+LineTotal = Quantity × UnitPrice.
+(1)
+The cleaned records are grouped by InvoiceNo to create a transaction list of unique
+StockCode values and an invoice-level feature table containing ProductRevenue, TotalQuantity,
+AvgUnitPrice, CustomerID, and Country.
+
+
+===== PAGE 4 =====
+
+4
+Linh Nguyen et al.
+Figure 2: Data preparation flow from raw Online Retail II records to the final MBA-ready transaction
+matrix.
+3.3
+Basket Filtering and Transaction Encoding
+Only baskets with at least two unique products are retained because association rules require
+an antecedent and a consequent in the form A ⇒B. This produces 36,308 baskets. Very large
+baskets are then removed using the 99th percentile basket-size threshold. The threshold is set at
+203 unique products, reducing the rule-mining dataset to 35,945 baskets. This threshold limits
+the influence of unusually large wholesale-like baskets and reduces computational burden while
+retaining most ordinary basket behavior.
+The filtered transaction list is converted into a one-hot encoded transaction matrix using
+TransactionEncoder from mlxtend [10].
+Each row represents a basket and each column
+represents a product. A value of True indicates that the product appears in the basket, and
+False indicates absence.
+3.4
+Frequent Itemset Mining and Threshold Logic
+Support is used to determine whether an itemset appears frequently enough to be considered for
+rule generation:
+support(A) = Number of baskets containing itemset A
+Total number of baskets
+.
+(2)
+Both Apriori and FP-Growth are run with min_support = 0.01. This threshold requires an
+itemset to appear in at least 1% of baskets, which balances two needs: retaining patterns that
+occur often enough to be interpreted and avoiding an excessive number of rare and unstable
+itemsets.
+Apriori is used as a classical baseline [4], while FP-Growth is selected for final
+rule generation because it mines frequent patterns without repeated candidate generation and
+therefore scales better for the final rule-mining step [6].
+Association rules are first generated using min_confidence = 0.2 to create a broad candidate
+pool. The final strong rule set uses support ≥0.01, confidence ≥0.4, and lift ≥2. The confidence
+threshold requires that at least 40% of antecedent baskets also contain the consequent, while
+lift ≥2 requires the association to be at least twice as strong as random co-occurrence. These
+
+
+===== PAGE 5 =====
+
+Project Market Basket Analysis for Cross-Selling Strategy
+5
+thresholds are used to prioritize interpretable and non-trivial rules rather than to prove business
+impact.
+3.5
+Association Rule Interpretation
+A rule is represented as:
+A ⇒B,
+(3)
+where A is the antecedent and B is the consequent. Confidence measures the conditional
+probability that B is purchased when A is purchased:
+confidence(A ⇒B) = support(A ∪B)
+support(A)
+.
+(4)
+Lift measures whether the relationship between A and B is stronger than random co-
+occurrence:
+lift(A ⇒B) = confidence(A ⇒B)
+support(B)
+.
+(5)
+The top 20 rules are interpreted using a combined view of lift, confidence, and support. Lift
+is useful for detecting non-random co-occurrence, but it can be inflated when support is low;
+therefore, support and confidence are also considered when discussing rule quality. To improve
+interpretability, each StockCode is mapped back to its product description so that rules can be
+reported as readable product relationships rather than product codes only.
+3.6
+Supplementary Regression-Based Check
+The regression component is supplementary rather than the core evidence of business impact.
+Its purpose is to check whether a representative high-lift rule remains associated with average
+order value after controlling for basket-level characteristics. Because the dataset consists of
+historical transaction logs rather than experimental data, the observed associations should not
+be interpreted as causal revenue effects.
+For a representative rule, rule_applied=1 if a basket contains all products in the rule and 0
+otherwise. The dependent variable is AOV, measured by invoice-level product revenue. Control
+variables include BasketSize, AvgUnitPrice, TotalQuantity, and Country. Extreme observa-
+tions are removed using the 99.5th percentile thresholds of AOV, BasketSize, TotalQuantity,
+and AvgUnitPrice. OLS models are estimated with HC3 robust standard errors [12, 13].
+3.7
+Artifact Packaging and Dashboard Outputs
+The final outputs include cleaned basket-item data, basket-level features, frequent itemsets,
+association rules, strong rules, top 20 ranked rules, visualizations, and dashboard-ready artifacts.
+The dashboard provides an executive overview, rule explorer, bundle recommendation cards,
+algorithm comparison, scenario-based revenue simulator, and exploratory regression summary.
+These modules are intended to help users inspect association patterns and business hypotheses,
+
+
+===== PAGE 6 =====
+
+6
+Linh Nguyen et al.
+not to prove operational impact.
+4
+Experimental Setup
+4.1
+Dataset Setup
+The experiment is conducted on the cleaned Online Retail II transaction data prepared in
+Section 3. After preprocessing and product-code cleaning, the dataset contains 1,003,357 basket-
+item records. The final rule-mining dataset contains 35,945 baskets after removing single-item
+baskets, which cannot form A ⇒B rules, and filtering unusually large baskets using the 99th
+percentile basket-size threshold to reduce outlier influence and computational burden.
+4.2
+Mining Parameters
+Apriori and FP-Growth are evaluated using min_support = 0.01. Association rules are generated
+with min_confidence = 0.2, and the final strong rule set is selected using support ≥0.01,
+confidence ≥0.4, and lift ≥2. The top 20 rules are selected through a combined interpretation
+of lift, confidence, and support as promising cross-selling candidates, not as confirmed business
+outcomes.
+4.3
+Regression Setup
+A representative high-lift rule is examined using basket-level regression. The dependent variable is
+AOV, while the main explanatory variable is rule_applied. The control variables are BasketSize,
+AvgUnitPrice, TotalQuantity, and Country. This analysis is used as a robustness check for
+basket-value association, not as a causal estimate.
+4.4
+Implementation
+All experiments are implemented in Python using pandas, NumPy, mlxtend, Matplotlib, and
+statsmodels [10, 11].
+SQL-style checks are used during exploratory analysis to inspect in-
+voices, products, countries, and transaction quality. The main outputs include association_
+rules_strong.csv, top_20_association_rules.csv, rule visualizations, and dashboard-ready
+artifacts.
+Table 1: Rule mining thresholds used in this study.
+Parameter
+Purpose
+Min support = 0.01
+Remove extremely rare rules
+Min confidence = 0.40
+Retain reliable recommendation rules
+Lift ≥2
+Keep strong positive associations
+Basket size ≤99th percentile
+Reduce outlier influence and computation
+
+
+===== PAGE 7 =====
+
+Project Market Basket Analysis for Cross-Selling Strategy
+7
+5
+Results and Discussion
+5.1
+Mining Results
+The final strong rule set contains 614 rules that satisfy support ≥0.01, confidence ≥0.4, and lift
+≥2. The top 20 rules are examined using lift, confidence, and support together. As shown in
+Figure 3, their lift values range from 38.6112 to 52.6464. These results answer RQ1 by identifying
+the highest-ranked rules under the selected thresholds. However, high lift should be interpreted
+as a strong co-purchase pattern, not as evidence of a successful cross-sell or direct business value.
+Figure 3: Top 20 association rules ranked by lift.
+5.2
+Rule Metric Interpretation
+Figure 4 shows the relationship among support, confidence, and lift for the strong rules. The
+support values range from 0.0100 to 0.0372, confidence values range from 0.4004 to 0.9216, and
+lift values range from 3.0246 to 52.6464. These metrics provide different views of rule quality:
+support reflects frequency, confidence reflects conditional purchase probability, and lift reflects
+association strength relative to random co-occurrence.
+These results answer RQ2 by showing which product relationships appear as promising
+recommendation candidates. The product-description mapping also improves rule interpretability
+because business users can inspect product names rather than only StockCodes. However, rules
+with high lift may still have limited operational value if they occur in a small number of baskets or
+are not suitable for real recommendation settings. Therefore, support, confidence, and lift should
+be interpreted together, and high lift alone should not be treated as evidence of a successful
+cross-sell.
+
+
+===== PAGE 8 =====
+
+8
+Linh Nguyen et al.
+Figure 4: Relationship between support, confidence, and lift for strong association rules.
+5.3
+Regression-Based Robustness Check
+Because the dataset consists of historical transaction logs rather than experimental data, the
+observed associations should not be interpreted as causal revenue effects. A representative
+rule-level regression check is therefore used only to examine whether one high-lift rule remains
+associated with AOV after controls. The representative rule is:
+22748, 22745 ⇒22746.
+(6)
+This rule has support of 0.0104, confidence of 0.7411, and lift of 52.6464. In the basket-level
+data, 557 baskets contain the antecedent products, 409 baskets contain the full rule, and 148
+baskets are recommendation candidates. The regression dataset contains 39,516 baskets before
+outlier treatment and 38,869 baskets after removing extreme observations.
+5.4
+Regression Results and Business Interpretation
+Table 2 and Figure 5 summarize the regression result for the representative rule. In the baseline
+model, rule_applied has a positive and statistically significant coefficient of 295.3146. After
+adding BasketSize, the coefficient drops to 26.3143 and becomes statistically insignificant. After
+further controlling for AvgUnitPrice, TotalQuantity, and Country, the coefficient remains
+insignificant and becomes negative.
+
+
+===== PAGE 9 =====
+
+Project Market Basket Analysis for Cross-Selling Strategy
+9
+This result answers RQ3 cautiously: baskets containing the representative rule appear to
+have higher AOV in a simple comparison, but the observed association is largely attenuated
+after controlling for basket characteristics such as basket size, total quantity, and average unit
+price. Therefore, a strong rule should be treated as a business hypothesis rather than proof of
+independent value creation.
+Model
+Controls Added
+Coefficient
+p-value
+Model 1A
+None
+295.3146
+0.0000
+Model 2A
+BasketSize
+26.3143
+0.4200
+Model 3A
+BasketSize + AvgUnitPrice
+28.1493
+0.3878
+Model 4A
+BasketSize + AvgUnitPrice + TotalQuantity
+-19.5486
+0.3428
+Model 5A
+BasketSize + AvgUnitPrice + TotalQuantity + Country
+-20.1419
+0.3277
+Table 2: Regression coefficient of rule_applied across model specifications for the representative rule.
+Figure 5: Change in the coefficient of rule_applied across regression models for the representative
+rule.
+5.5
+Discussion and Dashboard Support
+The results should be interpreted across three layers. First, the mining layer identifies high-lift
+association patterns. Second, the metric layer shows that support, confidence, and lift should
+be considered together. Third, the regression-based robustness check shows that association
+patterns do not automatically imply independent AOV improvement.
+Overall, high lift does not equal operational value, and co-purchase patterns do not imply
+causation. The discovered rules are best viewed as recommendation hypotheses that require
+further validation using live recommendation logs or controlled business experiments [14]. The
+dashboard supports this cautious interpretation by allowing users to explore rules interactively,
+inspect readable product names, compare Apriori and FP-Growth, and test scenario-based
+assumptions as supplementary business planning tools.
+
+
+===== PAGE 10 =====
+
+10
+Linh Nguyen et al.
+6
+Conclusion
+This study applies Market Basket Analysis to the Online Retail II dataset to identify co-
+purchase patterns and generate cross-selling candidates. The pipeline combines data cleaning,
+basket construction, transaction encoding, Apriori and FP-Growth comparison, rule filtering,
+visualization, and supplementary regression-based checking. The final strong rule set contains
+614 rules, and the top-ranked rules show high lift values under the selected thresholds.
+The findings suggest that association rule mining is useful for generating recommendation
+hypotheses, but high-lift rules should not be treated as confirmed operational value. The
+representative regression check shows that the baseline AOV difference is largely attenuated
+after adding basket size, quantity, and price-related controls. Future work should validate these
+rule-based recommendations using customer segments, live recommendation logs, or controlled
+experiments.
+
+
+===== PAGE 11 =====
+
+Project Market Basket Analysis for Cross-Selling Strategy
+11
+References
+[1] E. J. Omol, “Organizational digital transformation: From evolution to future trends,”
+Digital Transformation and Society, 2023.
+[2] E. Omol, L. Mburu, and P. Abuonji, “Digital maturity action fields for SMEs in developing
+economies,” Journal of Environmental Science, Computer Science, and Engineering &
+Technology, vol. 12, no. 3, 2023.
+[3] R. Agrawal, T. Imielinski, and A. Swami, “Mining association rules between sets of items
+in large databases,” in Proceedings of the 1993 ACM SIGMOD International Conference on
+Management of Data, pp. 207–216, 1993.
+[4] R. Agrawal and R. Srikant, “Fast algorithms for mining association rules,” in Proceedings
+of the 20th International Conference on Very Large Data Bases, pp. 487–499, 1994.
+[5] S. Brin, R. Motwani, J. D. Ullman, and S. Tsur, “Dynamic itemset counting and implication
+rules for market basket data,” in Proceedings of the 1997 ACM SIGMOD International
+Conference on Management of Data, pp. 255–264, 1997.
+[6] J. Han, J. Pei, and Y. Yin, “Mining frequent patterns without candidate generation,” in
+Proceedings of the 2000 ACM SIGMOD International Conference on Management of Data,
+pp. 1–12, 2000.
+[7] A. A. Aldino, E. D. Pratiwi, S. Sintaro, and A. D. Putra, “Comparison of market basket
+analysis to determine consumer purchasing patterns using FP-growth and Apriori algorithm,”
+in 2021 International Conference on Computer Science, Information Technology, and
+Electrical Engineering (ICOMITEE), pp. 29–34, IEEE, 2021.
+[8] A. R. Pillai and D. A. Jolhe, “Market basket analysis: A case study of a supermarket,”
+in Advances in Mechanical Engineering: Select Proceedings of ICAME 2020, pp. 727–734,
+Springer Singapore, 2020.
+[9] D.
+Chen,
+“Online
+Retail
+II,”
+UCI
+Machine
+Learning
+Repository,
+2019,
+doi:
+10.24432/C5CG6D.
+[10] S. Raschka, “MLxtend: Providing machine learning and data science utilities and extensions
+to Python’s scientific computing stack,” Journal of Open Source Software, vol. 3, no. 24, p.
+638, 2018.
+[11] S. Seabold and J. Perktold, “Statsmodels: Econometric and statistical modeling with
+Python,” in Proceedings of the 9th Python in Science Conference, pp. 92–96, 2010.
+[12] H. White, “A heteroskedasticity-consistent covariance matrix estimator and a direct test
+for heteroskedasticity,” Econometrica, vol. 48, no. 4, pp. 817–838, 1980.
+[13] J. G. MacKinnon and H. White, “Some heteroskedasticity-consistent covariance matrix
+estimators with improved finite sample properties,” Journal of Econometrics, vol. 29, no. 3,
+pp. 305–325, 1985.
+[14] R. Kohavi, D. Tang, and Y. Xu, Trustworthy Online Controlled Experiments: A Practical
+Guide to A/B Testing. Cambridge University Press, 2020.
