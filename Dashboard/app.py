@@ -2781,7 +2781,7 @@ def render_floating_project_assistant(
                 chat_history_box = st.container(height=260)
 
                 with chat_history_box:
-                    for msg in st.session_state.project_ai_messages[-8:]:
+                    for msg in st.session_state.project_ai_messages[-4:]:
                         if msg["role"] == "user":
                             st.markdown(f"**You:** {msg['content']}")
                         else:
