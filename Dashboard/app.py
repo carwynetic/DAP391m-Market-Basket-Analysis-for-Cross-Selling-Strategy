@@ -1533,7 +1533,7 @@ def load_project_paper_text():
         if not text.strip():
             return "File project_paper.txt đang trống."
 
-        return text[:30000]
+        return text[:12000]
 
     except Exception as e:
         return f"Lỗi khi đọc project_paper.txt: {e}"
