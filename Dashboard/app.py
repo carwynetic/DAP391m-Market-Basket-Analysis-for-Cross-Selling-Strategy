@@ -19,6 +19,7 @@ from mlxtend.frequent_patterns import apriori, fpgrowth, association_rules
 import time
 import unicodedata
 import statsmodels.formula.api as smf
+from google import genai
 # ==========================================
 # 1. PAGE CONFIG & CUSTOM CSS
 # ==========================================
@@ -2135,6 +2136,81 @@ def answer_project_assistant(user_question, context):
     return assistant_capability_summary()
 
 
+def answer_project_ai_gemini(user_question, context):
+    """
+    Real AI assistant using Google Gemini API.
+    API key is stored in Streamlit Secrets as GEMINI_API_KEY.
+    Rule-based answer_project_assistant is kept as fallback.
+    """
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY", None)
+
+        if not api_key:
+            return (
+                "Không tìm thấy GEMINI_API_KEY trong Streamlit Secrets. "
+                "Dashboard đang dùng fallback rule-based assistant.\n\n"
+                + answer_project_assistant(user_question, context)
+            )
+
+        client = genai.Client(api_key=api_key)
+
+        project_context = f"""
+PROJECT NAME:
+{PROJECT_TITLE}
+
+PROJECT DATASET:
+{PROJECT_DATASET_DESCRIPTION}
+
+PROJECT OBJECTIVE:
+{PROJECT_OBJECTIVE}
+
+RESEARCH QUESTIONS:
+{chr(10).join(PROJECT_RESEARCH_QUESTIONS)}
+
+TEAM MEMBERS:
+{chr(10).join(PROJECT_MEMBERS)}
+
+CURRENT DASHBOARD CONTEXT:
+{context}
+"""
+
+        prompt = f"""
+You are a real AI assistant embedded in a Streamlit dashboard.
+
+Your task:
+- Answer questions about this Market Basket Analysis dashboard.
+- Use only the provided project context and current dashboard context.
+- Answer in Vietnamese unless the user asks in English.
+- Be concise, clear, and suitable for student project presentation.
+- Do not invent numbers, results, files, models, dates, or team information.
+- If the context does not contain enough information, say: "Không đủ dữ liệu để xác minh."
+- Explain association rules as co-occurrence patterns, not causal proof.
+- Explain regression as observational robustness check, not causal proof.
+
+Project and dashboard context:
+{project_context}
+
+User question:
+{user_question}
+"""
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+
+        if hasattr(response, "text") and response.text:
+            return response.text.strip()
+
+        return "Không đủ dữ liệu để xác minh."
+
+    except Exception as e:
+        return (
+            f"Lỗi khi gọi Gemini API: {e}\n\n"
+            "Fallback rule-based answer:\n"
+            + answer_project_assistant(user_question, context)
+        )
+
 def _insight_escape(value):
     return html.escape(str(value if value is not None else "N/A"))
 
@@ -2449,7 +2525,7 @@ def render_floating_project_assistant(
         st.session_state.project_ai_messages = [
             {
                 "role": "assistant",
-                "content": "Tôi có thể trả lời nhanh về dataset, rules, model, country filter, mục tiêu web, và thành viên nhóm."
+                "content": "Tôi là AI assistant dùng Gemini API. Tôi có thể trả lời về dataset, association rules, model, country filter, mục tiêu dashboard, và kết quả hiện tại."
             }
         ]
     ASSISTANT_TAB_OPTIONS = [
@@ -2539,7 +2615,7 @@ def render_floating_project_assistant(
                     submitted = st.form_submit_button("Send")
 
                 if submitted and user_question.strip():
-                    answer = answer_project_assistant(user_question, context)
+                    answer = answer_project_ai_gemini(user_question, context)
 
                     st.session_state.project_ai_messages.append({
                         "role": "user",
@@ -2612,7 +2688,7 @@ def render_floating_project_assistant(
             for idx, (label, prompt_text) in enumerate(quick_questions):
                 with quick_cols[idx % 3]:
                     if st.button(label, key=f"project_ai_quick_{idx}"):
-                        answer = answer_project_assistant(prompt_text, context)
+                        answer = answer_project_ai_gemini(prompt_text, context)
 
                         st.session_state.project_ai_messages.append({
                             "role": "user",
@@ -2643,7 +2719,7 @@ def render_floating_project_assistant(
                 submitted = st.form_submit_button("Send")
 
             if submitted and user_question.strip():
-                answer = answer_project_assistant(user_question, context)
+                answer = answer_project_ai_gemini(user_question, context)
 
                 st.session_state.project_ai_messages.append({
                     "role": "user",
