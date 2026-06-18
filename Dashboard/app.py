@@ -1519,7 +1519,24 @@ def _format_number(value, decimals=2):
     except Exception:
         return "N/A"
 
+@st.cache_data(show_spinner=False)
+def load_project_paper_text():
+    paper_path = os.path.join(DATA_DIR, "knowledge", "project_paper.txt")
 
+    if not os.path.exists(paper_path):
+        return "Không tìm thấy file project_paper.txt trong Dashboard/data/knowledge/."
+
+    try:
+        with open(paper_path, "r", encoding="utf-8") as f:
+            text = f.read()
+
+        if not text.strip():
+            return "File project_paper.txt đang trống."
+
+        return text
+
+    except Exception as e:
+        return f"Lỗi khi đọc project_paper.txt: {e}"
 def build_dashboard_context_text(
     selected_country,
     country_filter_audit=None,
@@ -2153,7 +2170,7 @@ def answer_project_ai_gemini(user_question, context):
             )
 
         client = genai.Client(api_key=api_key)
-
+        paper_text = load_project_paper_text()
         project_context = f"""
 PROJECT NAME:
 {PROJECT_TITLE}
@@ -2172,14 +2189,18 @@ TEAM MEMBERS:
 
 CURRENT DASHBOARD CONTEXT:
 {context}
+
+FULL PAPER TEXT:
+{paper_text}
 """
 
         prompt = f"""
 You are a real AI assistant embedded in a Streamlit dashboard.
 
 Your task:
-- Answer questions about this Market Basket Analysis dashboard.
-- Use only the provided project context and current dashboard context.
+- Answer questions about this Market Basket Analysis dashboard and the project paper.
+- Use the provided dashboard context, project metadata, and full paper text.
+- You may reason across the dashboard outputs and the paper methodology/results.
 - Answer in Vietnamese unless the user asks in English.
 - Be concise, clear, and suitable for student project presentation.
 - Do not invent numbers, results, files, models, dates, or team information.
@@ -2195,7 +2216,7 @@ User question:
 """
 
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-.5-flash",
             contents=prompt
         )
 
