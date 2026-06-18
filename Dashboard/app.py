@@ -1533,7 +1533,7 @@ def load_project_paper_text():
         if not text.strip():
             return "File project_paper.txt đang trống."
 
-        return text
+        return text[:30000]
 
     except Exception as e:
         return f"Lỗi khi đọc project_paper.txt: {e}"
@@ -2243,7 +2243,7 @@ User question:
 """
 
         response = client.models.generate_content(
-            model="gemini-3.5-flash",
+            model="gemini-2.5-flash",
             contents=prompt
         )
 
