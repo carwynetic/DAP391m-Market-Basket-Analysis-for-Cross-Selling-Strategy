@@ -1662,6 +1662,174 @@ def build_dashboard_context_text(
         "regression_summary": regression_summary,
     }
 
+def build_uploaded_dataset_context_text():
+    uploaded_context = []
+
+    # Tab 8 - Uploaded MBA dataset
+    if "validated_uploaded_df" in st.session_state:
+        df = st.session_state["validated_uploaded_df"]
+
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            uploaded_context.append(
+                "TAB 8 - RUN MBA ON NEW DATASET CONTEXT:\n"
+                f"- Uploaded transaction dataset rows: {len(df):,}\n"
+                f"- Uploaded transaction dataset columns: {list(df.columns)}\n"
+                f"- Unique invoices/baskets: {df['InvoiceNo'].nunique() if 'InvoiceNo' in df.columns else 'N/A'}\n"
+                f"- Unique products: {df['StockCode'].nunique() if 'StockCode' in df.columns else 'N/A'}\n"
+                f"- Countries: {df['Country'].nunique() if 'Country' in df.columns else 'N/A'}\n"
+                "- Purpose: validate transaction-level data, build baskets, encode transaction matrix, run Apriori/FP-Growth, generate association rules."
+            )
+
+    if "runtime_summary_uploaded" in st.session_state:
+        runtime_df = st.session_state["runtime_summary_uploaded"]
+        if isinstance(runtime_df, pd.DataFrame) and not runtime_df.empty:
+            uploaded_context.append(
+                "TAB 8 - UPLOADED ALGORITHM RESULT:\n"
+                + runtime_df.to_string(index=False)
+            )
+
+    if "uploaded_rules" in st.session_state:
+        rules_df = st.session_state["uploaded_rules"]
+        strong_df = st.session_state.get("uploaded_strong_rules", pd.DataFrame())
+
+        if isinstance(rules_df, pd.DataFrame) and not rules_df.empty:
+            top_rules = (
+                rules_df.sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
+                .head(5)
+            )
+
+            uploaded_context.append(
+                "TAB 8 - UPLOADED ASSOCIATION RULE RESULT:\n"
+                f"- Generated rules: {len(rules_df):,}\n"
+                f"- Strong rules: {len(strong_df):,}\n"
+                "Top uploaded rules:\n"
+                + top_rules[[col for col in ["rule_desc", "support", "confidence", "lift"] if col in top_rules.columns]].to_string(index=False)
+            )
+
+    # Tab 9 - Uploaded regression dataset
+    if "validated_regression_df" in st.session_state:
+        reg_df = st.session_state["validated_regression_df"]
+
+        if isinstance(reg_df, pd.DataFrame) and not reg_df.empty:
+            uploaded_context.append(
+                "TAB 9 - RUN REGRESSION ON NEW DATASET CONTEXT:\n"
+                f"- Uploaded regression dataset rows: {len(reg_df):,}\n"
+                f"- Uploaded regression dataset columns: {list(reg_df.columns)}\n"
+                f"- Unique invoices: {reg_df['InvoiceNo'].nunique() if 'InvoiceNo' in reg_df.columns else 'N/A'}\n"
+                f"- Countries: {reg_df['Country'].nunique() if 'Country' in reg_df.columns else 'N/A'}\n"
+                f"- Avg BasketSize: {reg_df['BasketSize'].mean():.2f if 'BasketSize' in reg_df.columns else 'N/A'}\n"
+                "- Purpose: validate basket-level regression-ready data, create rule_applied, remove outliers, run OLS regression."
+            )
+
+    if "regression_rule_applied_stats" in st.session_state:
+        stats = st.session_state["regression_rule_applied_stats"]
+        uploaded_context.append(
+            "TAB 9 - RULE_APPLIED FEATURE RESULT:\n"
+            f"- Antecedent codes: {stats.get('antecedent_codes', 'N/A')}\n"
+            f"- Consequent codes: {stats.get('consequent_codes', 'N/A')}\n"
+            f"- Rule applied baskets: {stats.get('applied_count', 'N/A')}\n"
+            f"- Rule not applied baskets: {stats.get('not_applied_count', 'N/A')}\n"
+            f"- Applied rate: {stats.get('applied_rate', 'N/A')}"
+        )
+
+    if "uploaded_regression_results_df" in st.session_state:
+        result_df = st.session_state["uploaded_regression_results_df"]
+
+        if isinstance(result_df, pd.DataFrame) and not result_df.empty:
+            uploaded_context.append(
+                "TAB 9 - UPLOADED REGRESSION RESULT:\n"
+                + result_df.to_string(index=False)
+            )
+
+    if not uploaded_context:
+        return "No uploaded dataset context is currently available."
+
+    return "\n\n".join(uploaded_context)
+
+def build_uploaded_dataset_context_text():
+    uploaded_context = []
+
+    # Tab 8 - Uploaded MBA dataset
+    if "validated_uploaded_df" in st.session_state:
+        df = st.session_state["validated_uploaded_df"]
+
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            uploaded_context.append(
+                "TAB 8 - RUN MBA ON NEW DATASET CONTEXT:\n"
+                f"- Uploaded transaction dataset rows: {len(df):,}\n"
+                f"- Uploaded transaction dataset columns: {list(df.columns)}\n"
+                f"- Unique invoices/baskets: {df['InvoiceNo'].nunique() if 'InvoiceNo' in df.columns else 'N/A'}\n"
+                f"- Unique products: {df['StockCode'].nunique() if 'StockCode' in df.columns else 'N/A'}\n"
+                f"- Countries: {df['Country'].nunique() if 'Country' in df.columns else 'N/A'}\n"
+                "- Purpose: validate transaction-level data, build baskets, encode transaction matrix, run Apriori/FP-Growth, generate association rules."
+            )
+
+    if "runtime_summary_uploaded" in st.session_state:
+        runtime_df = st.session_state["runtime_summary_uploaded"]
+        if isinstance(runtime_df, pd.DataFrame) and not runtime_df.empty:
+            uploaded_context.append(
+                "TAB 8 - UPLOADED ALGORITHM RESULT:\n"
+                + runtime_df.to_string(index=False)
+            )
+
+    if "uploaded_rules" in st.session_state:
+        rules_df = st.session_state["uploaded_rules"]
+        strong_df = st.session_state.get("uploaded_strong_rules", pd.DataFrame())
+
+        if isinstance(rules_df, pd.DataFrame) and not rules_df.empty:
+            top_rules = (
+                rules_df.sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
+                .head(5)
+            )
+
+            uploaded_context.append(
+                "TAB 8 - UPLOADED ASSOCIATION RULE RESULT:\n"
+                f"- Generated rules: {len(rules_df):,}\n"
+                f"- Strong rules: {len(strong_df):,}\n"
+                "Top uploaded rules:\n"
+                + top_rules[[col for col in ["rule_desc", "support", "confidence", "lift"] if col in top_rules.columns]].to_string(index=False)
+            )
+
+    # Tab 9 - Uploaded regression dataset
+    if "validated_regression_df" in st.session_state:
+        reg_df = st.session_state["validated_regression_df"]
+
+        if isinstance(reg_df, pd.DataFrame) and not reg_df.empty:
+            uploaded_context.append(
+                "TAB 9 - RUN REGRESSION ON NEW DATASET CONTEXT:\n"
+                f"- Uploaded regression dataset rows: {len(reg_df):,}\n"
+                f"- Uploaded regression dataset columns: {list(reg_df.columns)}\n"
+                f"- Unique invoices: {reg_df['InvoiceNo'].nunique() if 'InvoiceNo' in reg_df.columns else 'N/A'}\n"
+                f"- Countries: {reg_df['Country'].nunique() if 'Country' in reg_df.columns else 'N/A'}\n"
+                f"- Avg BasketSize: {reg_df['BasketSize'].mean():.2f if 'BasketSize' in reg_df.columns else 'N/A'}\n"
+                "- Purpose: validate basket-level regression-ready data, create rule_applied, remove outliers, run OLS regression."
+            )
+
+    if "regression_rule_applied_stats" in st.session_state:
+        stats = st.session_state["regression_rule_applied_stats"]
+        uploaded_context.append(
+            "TAB 9 - RULE_APPLIED FEATURE RESULT:\n"
+            f"- Antecedent codes: {stats.get('antecedent_codes', 'N/A')}\n"
+            f"- Consequent codes: {stats.get('consequent_codes', 'N/A')}\n"
+            f"- Rule applied baskets: {stats.get('applied_count', 'N/A')}\n"
+            f"- Rule not applied baskets: {stats.get('not_applied_count', 'N/A')}\n"
+            f"- Applied rate: {stats.get('applied_rate', 'N/A')}"
+        )
+
+    if "uploaded_regression_results_df" in st.session_state:
+        result_df = st.session_state["uploaded_regression_results_df"]
+
+        if isinstance(result_df, pd.DataFrame) and not result_df.empty:
+            uploaded_context.append(
+                "TAB 9 - UPLOADED REGRESSION RESULT:\n"
+                + result_df.to_string(index=False)
+            )
+
+    if not uploaded_context:
+        return "No uploaded dataset context is currently available."
+
+    return "\n\n".join(uploaded_context)
+
 def explain_current_tab(context):
     tab = context.get("current_tab", "General")
     country = context.get("country", "All")
@@ -2196,6 +2364,7 @@ def answer_project_ai_gemini(user_question, context):
 
         client = genai.Client(api_key=api_key)
         paper_text = load_project_paper_text()
+        uploaded_dataset_context = build_uploaded_dataset_context_text()
         project_context = f"""
 PROJECT NAME:
 {PROJECT_TITLE}
@@ -2214,6 +2383,9 @@ TEAM MEMBERS:
 
 CURRENT DASHBOARD CONTEXT:
 {context}
+
+UPLOADED DATASET / CURRENT TAB OUTPUT CONTEXT:
+{uploaded_dataset_context}
 
 FULL PAPER TEXT:
 {paper_text}
@@ -2234,7 +2406,8 @@ Your task:
 - Explain regression as observational robustness check, not causal proof.
 - If the user asks about "bảng", "biểu đồ", "chart", "table", "graph", "trong đây", or "màn hình này", explain the currently selected tab context using the dashboard context.
 - Explain what each visible chart/table means, what metrics it uses, and how it connects to the research questions.
-
+- The selected "Tab context" in the chatbox is the only tab context you should use. If the user asks about "tab này", "trong đây", "bảng này", or "dataset được up", answer based on the selected Tab context and uploaded dataset context.
+- If the selected Tab context conflicts with what the user says, mention that the chatbox Tab context may need to be changed.
 Project and dashboard context:
 {project_context}
 
