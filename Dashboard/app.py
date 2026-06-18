@@ -1678,14 +1678,18 @@ def explain_current_tab(context):
     if "Rules Explorer" in tab:
         return (
             f"Tab hiện tại: Rules Explorer.\n\n"
-            f"Tab này trả lời RQ1 bằng cách hiển thị association rules theo support, confidence, và lift.\n"
+            f"Mục đích: tab này trả lời RQ1 bằng cách hiển thị các association rules đạt threshold.\n\n"
+            f"Biểu đồ scatter plot: trục X là support, trục Y là confidence, màu thể hiện lift. "
+            f"Nó giúp xem rule nào vừa xuất hiện đủ thường xuyên, vừa có confidence tốt, vừa có lift cao.\n\n"
+            f"Bảng bên dưới: mỗi dòng là một association rule. Các cột chính gồm rule_desc/rule_display, support, confidence, lift, leverage và conviction. "
+            f"Bảng này dùng để kiểm tra rule cụ thể và chọn candidate cho cross-selling.\n\n"
             f"Country đang chọn: {country}\n"
             f"Pipeline status: {status}\n\n"
             f"Top rule hiện tại: {context.get('top_rule', 'N/A')}\n"
             f"Support: {context.get('top_support', 'N/A')}\n"
             f"Confidence: {context.get('top_confidence', 'N/A')}\n"
             f"Lift: {context.get('top_lift', 'N/A')}\n\n"
-            f"Lưu ý: association rule là pattern đồng xuất hiện, không phải bằng chứng nhân quả."
+            f"Lưu ý: đây là association pattern, không phải causal proof."
         )
 
     if "Bundle Recommendation" in tab:
@@ -1968,6 +1972,14 @@ def answer_project_assistant(user_question, context):
         "ket luan tab",
         "ket luan trang",
         "current tab"
+        "bang",
+        "bieu do",
+        "chart",
+        "table",
+        "graph",
+        "trong day",
+        "cac bang",
+        "cac bieu do"
     ]):
         return explain_current_tab(context)
 
@@ -2000,15 +2012,28 @@ def answer_project_assistant(user_question, context):
             f"Mục tiêu: {PROJECT_OBJECTIVE}"
         )
 
-    # Research questions
+    # Specific research questions
+    if any(phrase in q for phrase in ["rq1", "research question 1"]):
+        return PROJECT_RESEARCH_QUESTIONS[0]
+
+    if any(phrase in q for phrase in ["rq2", "research question 2"]):
+        return PROJECT_RESEARCH_QUESTIONS[1]
+
+    if any(phrase in q for phrase in ["rq3", "research question 3"]):
+        return (
+            PROJECT_RESEARCH_QUESTIONS[2]
+            + "\n\nKết luận RQ3: baskets chứa representative high-lift rule có AOV cao hơn trong baseline comparison, "
+            "nhưng association trở nên không statistically significant sau khi thêm BasketSize, AvgUnitPrice, "
+            "TotalQuantity và Country. Vì vậy rule chỉ nên xem là business hypothesis, không phải causal proof."
+        )
+
+    # General research questions
     if any(phrase in q for phrase in [
         "research question",
-        "rq",
         "cau hoi nghien cuu",
         "nghien cuu cai gi"
     ]):
         return "Research questions của project:\n\n" + "\n".join(PROJECT_RESEARCH_QUESTIONS)
-
     # Group members
     if any(phrase in q for phrase in [
         "thanh vien",
