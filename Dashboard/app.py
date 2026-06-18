@@ -1665,19 +1665,23 @@ def build_dashboard_context_text(
 def build_uploaded_dataset_context_text():
     uploaded_context = []
 
-    # Tab 8 - Uploaded MBA dataset
+    # ======================
+    # TAB 8 - Uploaded MBA
+    # ======================
     if "validated_uploaded_df" in st.session_state:
         df = st.session_state["validated_uploaded_df"]
+        filename = st.session_state.get("uploaded_mba_filename", "N/A")
 
         if isinstance(df, pd.DataFrame) and not df.empty:
             uploaded_context.append(
                 "TAB 8 - RUN MBA ON NEW DATASET CONTEXT:\n"
-                f"- Uploaded transaction dataset rows: {len(df):,}\n"
-                f"- Uploaded transaction dataset columns: {list(df.columns)}\n"
+                f"- Uploaded file name: {filename}\n"
+                f"- Rows: {len(df):,}\n"
+                f"- Columns: {list(df.columns)}\n"
                 f"- Unique invoices/baskets: {df['InvoiceNo'].nunique() if 'InvoiceNo' in df.columns else 'N/A'}\n"
                 f"- Unique products: {df['StockCode'].nunique() if 'StockCode' in df.columns else 'N/A'}\n"
                 f"- Countries: {df['Country'].nunique() if 'Country' in df.columns else 'N/A'}\n"
-                "- Purpose: validate transaction-level data, build baskets, encode transaction matrix, run Apriori/FP-Growth, generate association rules."
+                "- Purpose: validate transaction-level data, build baskets, encode transaction matrix, run Apriori/FP-Growth, and generate association rules.\n"
             )
 
     if "runtime_summary_uploaded" in st.session_state:
@@ -1695,52 +1699,57 @@ def build_uploaded_dataset_context_text():
         if isinstance(rules_df, pd.DataFrame) and not rules_df.empty:
             top_rules = (
                 rules_df.sort_values(["lift", "confidence", "support"], ascending=[False, False, False])
-                .head(5)
+                .head(10)
             )
+
+            display_cols = [col for col in ["rule_desc", "rule_display", "support", "confidence", "lift"] if col in top_rules.columns]
 
             uploaded_context.append(
                 "TAB 8 - UPLOADED ASSOCIATION RULE RESULT:\n"
                 f"- Generated rules: {len(rules_df):,}\n"
                 f"- Strong rules: {len(strong_df):,}\n"
                 "Top uploaded rules:\n"
-                + top_rules[[col for col in ["rule_desc", "support", "confidence", "lift"] if col in top_rules.columns]].to_string(index=False)
+                + top_rules[display_cols].to_string(index=False)
             )
 
-    # Tab 9 - Uploaded regression dataset
+    # ======================
+    # TAB 9 - Uploaded Regression
+    # ======================
     if "validated_regression_df" in st.session_state:
         reg_df = st.session_state["validated_regression_df"]
+        filename = st.session_state.get("uploaded_regression_filename", "N/A")
 
         if isinstance(reg_df, pd.DataFrame) and not reg_df.empty:
-            if "BasketSize" in reg_df.columns:
-                avg_basket_size = f"{reg_df['BasketSize'].mean():.2f}"
-            else:
-                avg_basket_size = "N/A"
+            avg_basket_size = f"{reg_df['BasketSize'].mean():.2f}" if "BasketSize" in reg_df.columns else "N/A"
+            avg_revenue = f"£{reg_df['ProductRevenue'].mean():.2f}" if "ProductRevenue" in reg_df.columns else "N/A"
+            avg_quantity = f"{reg_df['TotalQuantity'].mean():.2f}" if "TotalQuantity" in reg_df.columns else "N/A"
+            avg_unit_price = f"£{reg_df['AvgUnitPrice'].mean():.2f}" if "AvgUnitPrice" in reg_df.columns else "N/A"
 
-            if "ProductRevenue" in reg_df.columns:
-                avg_revenue = f"£{reg_df['ProductRevenue'].mean():.2f}"
-            else:
-                avg_revenue = "N/A"
+            country_text = "N/A"
+            if "Country" in reg_df.columns:
+                country_text = reg_df["Country"].value_counts().head(10).to_string()
 
-            if "TotalQuantity" in reg_df.columns:
-                avg_quantity = f"{reg_df['TotalQuantity'].mean():.2f}"
-            else:
-                avg_quantity = "N/A"
+            numeric_text = "N/A"
+            numeric_cols = [c for c in ["BasketSize", "ProductRevenue", "TotalQuantity", "AvgUnitPrice"] if c in reg_df.columns]
+            if numeric_cols:
+                numeric_text = reg_df[numeric_cols].describe().T.to_string()
 
-            if "AvgUnitPrice" in reg_df.columns:
-                avg_unit_price = f"£{reg_df['AvgUnitPrice'].mean():.2f}"
-            else:
-                avg_unit_price = "N/A"
             uploaded_context.append(
                 "TAB 9 - RUN REGRESSION ON NEW DATASET CONTEXT:\n"
-                f"- Uploaded regression dataset rows: {len(reg_df):,}\n"
-                f"- Uploaded regression dataset columns: {list(reg_df.columns)}\n"
+                f"- Uploaded file name: {filename}\n"
+                f"- Rows: {len(reg_df):,}\n"
+                f"- Columns: {list(reg_df.columns)}\n"
                 f"- Unique invoices: {reg_df['InvoiceNo'].nunique() if 'InvoiceNo' in reg_df.columns else 'N/A'}\n"
                 f"- Countries: {reg_df['Country'].nunique() if 'Country' in reg_df.columns else 'N/A'}\n"
-                "- Purpose: validate basket-level regression-ready data, create rule_applied, remove outliers, run OLS regression."
                 f"- Avg BasketSize: {avg_basket_size}\n"
                 f"- Avg Revenue: {avg_revenue}\n"
                 f"- Avg Quantity: {avg_quantity}\n"
                 f"- Avg Unit Price: {avg_unit_price}\n"
+                "- Purpose: validate basket-level regression-ready data, create rule_applied, remove outliers, run OLS regression.\n\n"
+                "Numeric summary:\n"
+                f"{numeric_text}\n\n"
+                "Top country distribution:\n"
+                f"{country_text}"
             )
 
     if "regression_rule_applied_stats" in st.session_state:
@@ -1749,9 +1758,23 @@ def build_uploaded_dataset_context_text():
             "TAB 9 - RULE_APPLIED FEATURE RESULT:\n"
             f"- Antecedent codes: {stats.get('antecedent_codes', 'N/A')}\n"
             f"- Consequent codes: {stats.get('consequent_codes', 'N/A')}\n"
+            f"- Rule items: {stats.get('rule_items', 'N/A')}\n"
             f"- Rule applied baskets: {stats.get('applied_count', 'N/A')}\n"
             f"- Rule not applied baskets: {stats.get('not_applied_count', 'N/A')}\n"
-            f"- Applied rate: {stats.get('applied_rate', 'N/A')}"
+            f"- Applied rate: {stats.get('applied_rate', 'N/A')}\n"
+            f"- Avg revenue applied: {stats.get('applied_avg_revenue', 'N/A')}\n"
+            f"- Avg revenue not applied: {stats.get('not_applied_avg_revenue', 'N/A')}"
+        )
+
+    if "regression_outlier_stats" in st.session_state:
+        stats = st.session_state["regression_outlier_stats"]
+        uploaded_context.append(
+            "TAB 9 - OUTLIER TREATMENT RESULT:\n"
+            f"- Rows before: {stats.get('rows_before', 'N/A')}\n"
+            f"- Rows after: {stats.get('rows_after', 'N/A')}\n"
+            f"- Removed rows: {stats.get('removed_rows', 'N/A')}\n"
+            f"- Removed rate: {stats.get('removed_rate', 'N/A')}\n"
+            f"- Thresholds:\n{stats.get('thresholds', pd.DataFrame()).to_string(index=False) if isinstance(stats.get('thresholds'), pd.DataFrame) else 'N/A'}"
         )
 
     if "uploaded_regression_results_df" in st.session_state:
@@ -1767,7 +1790,6 @@ def build_uploaded_dataset_context_text():
         return "No uploaded dataset context is currently available."
 
     return "\n\n".join(uploaded_context)
-
 
 def explain_current_tab(context):
     tab = context.get("current_tab", "General")
@@ -4321,7 +4343,7 @@ with tabs[7]:
     else:
         try:
             uploaded_df = pd.read_csv(uploaded_file)
-
+            st.session_state["uploaded_mba_filename"] = uploaded_file.name
             uploaded_df.columns = (
                 uploaded_df.columns
                 .astype(str)
@@ -4943,7 +4965,7 @@ with tabs[8]:
     else:
         try:
             uploaded_regression_df = pd.read_csv(uploaded_regression_file)
-
+            st.session_state["uploaded_regression_filename"] = uploaded_regression_file.name
             uploaded_regression_df.columns = (
                 uploaded_regression_df.columns
                 .astype(str)
