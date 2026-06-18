@@ -2207,6 +2207,8 @@ Your task:
 - If the context does not contain enough information, say: "Không đủ dữ liệu để xác minh."
 - Explain association rules as co-occurrence patterns, not causal proof.
 - Explain regression as observational robustness check, not causal proof.
+- If the user asks about "bảng", "biểu đồ", "chart", "table", "graph", "trong đây", or "màn hình này", explain the currently selected tab context using the dashboard context.
+- Explain what each visible chart/table means, what metrics it uses, and how it connects to the research questions.
 
 Project and dashboard context:
 {project_context}
