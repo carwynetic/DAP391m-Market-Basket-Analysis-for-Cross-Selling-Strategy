@@ -2082,14 +2082,35 @@ def assistant_capability_summary():
         "- Regression result\n"
         "- Vì sao kết quả không phải causal proof"
     )
-
+def assistant_basket_size_distribution_summary(context):
+    return (
+        "Basket Size Distribution là biểu đồ histogram cho biết mỗi basket/invoice có bao nhiêu unique products.\n\n"
+        f"Country đang chọn: {context.get('country', 'N/A')}\n"
+        f"Basket rows: {assistant_format_number(context.get('basket_rows'), 0)}\n"
+        f"Usable baskets: {assistant_format_number(context.get('usable_baskets'), 0)}\n"
+        f"Average basket size: {assistant_format_number(context.get('avg_basket_size'), 2)} items\n\n"
+        "Cách đọc: nếu phần lớn cột tập trung ở vùng basket size thấp, nghĩa là đa số đơn hàng có ít sản phẩm. "
+        "Nếu biểu đồ có đuôi dài bên phải, nghĩa là có một số basket rất lớn, có thể là wholesale-like baskets hoặc outliers. "
+        "Biểu đồ này giúp hiểu hành vi mua hàng, kiểm tra outlier, và quyết định lọc dữ liệu trước khi chạy association rule mining."
+    )
 def answer_project_assistant(user_question, context):
     q_raw = str(user_question or "").strip()
     q = assistant_normalize_text(q_raw)
 
     if not q:
         return "Nhập câu hỏi về dashboard, dataset, rule mining, regression, country filter, hoặc mục tiêu project."
-
+    # Basket size distribution
+    if any(phrase in q for phrase in [
+        "basket size distribution",
+        "basket distribution",
+        "basket size",
+        "histogram",
+        "phan bo kich thuoc gio",
+        "kich thuoc gio hang",
+        "gio hang",
+        "so san pham trong gio"
+    ]):
+        return assistant_basket_size_distribution_summary(context)
     # Current tab explanation
     if any(phrase in q for phrase in [
         "tab nay",
@@ -2386,12 +2407,8 @@ User question:
 
         return "Không đủ dữ liệu để xác minh."
 
-    except Exception as e:
-        return (
-            f"Lỗi khi gọi Gemini API: {e}\n\n"
-            "Fallback rule-based answer:\n"
-            + answer_project_assistant(user_question, context)
-        )
+    except Exception:
+        return answer_project_assistant(user_question, context)
 
 def _insight_escape(value):
     return html.escape(str(value if value is not None else "N/A"))
