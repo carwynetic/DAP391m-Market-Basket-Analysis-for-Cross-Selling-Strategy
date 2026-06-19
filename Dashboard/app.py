@@ -2329,6 +2329,10 @@ def answer_project_assistant(user_question, context):
 
 
 def answer_project_ai_gemini(user_question, context):
+    local_answer = answer_project_assistant(user_question, context)
+
+    if not local_answer.startswith("Tôi có thể trả lời nhanh"):
+        return local_answer
     """
     Real AI assistant using Google Gemini API.
     API key is stored in Streamlit Secrets as GEMINI_API_KEY.
